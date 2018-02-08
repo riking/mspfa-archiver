@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/glenn-brown/golang-pkg-pcre/src/pkg/pcre"
 	cssparse "github.com/gorilla/css/scanner"
@@ -64,6 +66,17 @@ func (a advDir) URLsFile() string {
 	return filepath.Join(string(a), "urls.txt")
 }
 
+func (a advDir) LatestCrawlFile() string {
+	return filepath.Join(string(a), "latest_crawl")
+}
+
+func (a advDir) File(name string) string {
+	return filepath.Join(string(a), name)
+}
+
+const stampFormat = "20060102150405"
+const userAgent = "MSPFA Archiver/0.8"
+
 func downloadStoryJSON(storyID string, dir advDir) error {
 	// wget --post-data "do=story&s=21746" https://mspfa.com/
 
@@ -94,7 +107,42 @@ func downloadStoryJSON(storyID string, dir advDir) error {
 	return errors.Wrap(err, "wget: download adventure json")
 }
 
-func scanDescription(desc string, out chan<- string) error {
+func downloadResources(dir advDir) error {
+	// ../../wpull --warc-file ../resources --warc-append --warc-cdx --wait 0.1 --page-requisites --tries 3 --retry-connrefused --retry-dns-error --database ../wpull.db --output-file ../wpull-$(date +%s).log --user-agent "MSPFA Archiver/0.8" --span-hosts-allow page-requisites -l 3
+	cmd := exec.Command("./wpull",
+		"--database", dir.File("wpull.db"),
+		"--input-file", dir.URLsFile(),
+		"--output-file", dir.File(time.Now().Format("wpull-"+stampFormat+".log")),
+		"--user-agent", userAgent,
+		"--concurrent", "2",
+		"--warc-file", dir.File("resources"),
+		"--warc-append", "--warc-cdx",
+		"--warc-tempdir", string(dir),
+		"--page-requisites",
+		// "--span-hosts-allow", "page-requisites",
+		"--wait", "0.1",
+		"--tries", "3",
+		"--retry-connrefused", "--retry-dns-error",
+		"-P", dir.File("files"),
+		"--exclude-domains", "discordapp.com,youtube.com,mspfa.com",
+		// "--youtube-dl",
+	)
+	// cmd.Dir = string(dir)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	fmt.Println("Ready to run wpull")
+	fmt.Println(cmd.Args)
+	err := cmd.Run()
+	return errors.Wrap(err, "wpull")
+}
+
+func downloadYouTube(dir advDir) error {
+	return nil
+}
+
+func scanHTML(desc string, out chan<- string) error {
 	tz := html.NewTokenizer(strings.NewReader(desc))
 	for {
 		tt := tz.Next()
@@ -107,12 +155,11 @@ func scanDescription(desc string, out chan<- string) error {
 		case tt == html.StartTagToken:
 			t := tz.Token()
 
-			for _, a := range t.Attr {
-				if a.Key == "href" {
-					// Description typically has external links
-					// out <- a.Val
-				} else if a.Key == "src" {
-					out <- a.Val
+			for _, at := range t.Attr {
+				if at.Key == "href" {
+					out <- at.Val
+				} else if at.Key == "src" {
+					out <- at.Val
 				}
 			}
 		}
@@ -141,7 +188,7 @@ func scanCSS(src template.CSS, out chan<- string) {
 			quoteChar := matched[locs[1*2]:locs[1*2+1]]
 			matched = matched[locs[0*2+1]:]
 			matched = strings.TrimSuffix(matched, quoteChar+")")
-			fmt.Println("DEBUG: css uri extraction:", matched)
+			// fmt.Println("DEBUG: css uri extraction:", matched)
 			scanURL(matched, out)
 		}
 	}
@@ -174,20 +221,22 @@ func scanBBCode(p *Page, out chan<- string) {
 			switch k {
 			case "url1", "img1":
 				out <- matcher.GroupString(1)
-			case "img2":
+			case "url2":
 				out <- matcher.GroupString(2)
 			case "img3", "flash3":
 				out <- matcher.GroupString(3)
 			}
 		}
 	}
+
+	scanHTML(p.Body, out)
 }
 
 func scanURLs(story *StoryJSON, out chan<- string) error {
 	for idx := range story.Pages {
 		scanBBCode(&story.Pages[idx], out)
 	}
-	scanDescription(string(story.Description), out)
+	scanHTML(string(story.Description), out)
 	scanURL(story.Icon, out)
 	scanCSS(story.CSS, out)
 	scanURL(story.Q, out)
@@ -212,6 +261,59 @@ func readStoryJSON(dir advDir) (*StoryJSON, error) {
 	return out, nil
 }
 
+func writeURLsFile(urlList, videoList map[string]struct{}, dir advDir) error {
+	urls := make([]string, 0, len(urlList))
+	for link := range urlList {
+		_, isVideo := videoList[link]
+		if !isVideo {
+			urls = append(urls, link)
+		}
+	}
+	videos := make([]string, 0, len(videoList))
+	for link := range videoList {
+		videos = append(videos, link)
+	}
+	sort.Strings(urls)
+	sort.Strings(videos)
+
+	f, err := os.Create(dir.File("urls.txt"))
+	if err != nil {
+		return errors.Wrap(err, "writing urls file")
+	}
+	defer f.Close()
+	w := bufio.NewWriter(f)
+	for _, link := range urls {
+		fmt.Fprintln(w, link)
+	}
+	err = w.Flush()
+	if err != nil {
+		return errors.Wrap(err, "writing urls file")
+	}
+
+	f, err = os.Create(dir.File("videos.txt"))
+	if err != nil {
+		return errors.Wrap(err, "writing videos file")
+	}
+	defer f.Close()
+	w = bufio.NewWriter(f)
+	for _, link := range videos {
+		fmt.Fprintln(w, link)
+	}
+	err = w.Flush()
+	if err != nil {
+		return errors.Wrap(err, "writing urls file")
+	}
+
+	return err
+}
+
+var videoURLs = []string{
+	"youtube.com/watch",
+	"youtu.be",
+	"newgrounds.com/audio",
+	"soundcloud.com",
+}
+
 func archiveStory(storyID string, dir advDir) error {
 	err := downloadStoryJSON(storyID, dir)
 	if err != nil {
@@ -231,27 +333,24 @@ func archiveStory(storyID string, dir advDir) error {
 	}()
 
 	urlList := make(map[string]struct{})
+	videoList := make(map[string]struct{})
 	for resource := range urlChan {
+		for _, videoStr := range videoURLs {
+			if strings.Contains(resource, videoStr) {
+				videoList[resource] = struct{}{}
+			}
+		}
 		urlList[resource] = struct{}{}
 	}
-	resources := make([]string, 0, len(urlList))
-	for resource := range urlList {
-		resources = append(resources, resource)
-	}
-	sort.Strings(resources)
-	for _, resource := range resources {
-		fmt.Println(resource)
-	}
-	fmt.Println(len(resources), "images")
-	if scanErr != nil {
-		fmt.Println("Error while URL scanning:", scanErr)
-	}
+
+	writeURLsFile(urlList, videoList, dir)
 
 	return nil
 }
 
 func main() {
 	outDir := flag.String("o", ".", "Output directory where the archive folders should be created.")
+	download := flag.Bool("dl", false, "Download files instead of just listing them")
 
 	flag.Parse()
 
@@ -280,5 +379,13 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%+v\n", err)
 		os.Exit(1)
+	}
+
+	if *download {
+		err = downloadResources(advDir(folder))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			os.Exit(1)
+		}
 	}
 }
