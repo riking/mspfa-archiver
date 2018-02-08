@@ -62,10 +62,6 @@ func (a advDir) JSONFile() string {
 	return filepath.Join(string(a), "adventure.json")
 }
 
-func (a advDir) URLsFile() string {
-	return filepath.Join(string(a), "urls.txt")
-}
-
 func (a advDir) LatestCrawlFile() string {
 	return filepath.Join(string(a), "latest_crawl")
 }
@@ -111,7 +107,7 @@ func downloadResources(dir advDir) error {
 	// ../../wpull --warc-file ../resources --warc-append --warc-cdx --wait 0.1 --page-requisites --tries 3 --retry-connrefused --retry-dns-error --database ../wpull.db --output-file ../wpull-$(date +%s).log --user-agent "MSPFA Archiver/0.8" --span-hosts-allow page-requisites -l 3
 	cmd := exec.Command("./wpull",
 		"--database", dir.File("wpull.db"),
-		"--input-file", dir.URLsFile(),
+		"--input-file", dir.File("urls.txt"),
 		"--output-file", dir.File(time.Now().Format("wpull-"+stampFormat+".log")),
 		"--user-agent", userAgent,
 		"--concurrent", "2",
@@ -119,7 +115,7 @@ func downloadResources(dir advDir) error {
 		"--warc-append", "--warc-cdx",
 		"--warc-tempdir", string(dir),
 		"--page-requisites",
-		// "--span-hosts-allow", "page-requisites",
+		"--span-hosts-allow", "page-requisites",
 		"--wait", "0.1",
 		"--tries", "3",
 		"--retry-connrefused", "--retry-dns-error",
@@ -138,7 +134,45 @@ func downloadResources(dir advDir) error {
 	return errors.Wrap(err, "wpull")
 }
 
-func downloadYouTube(dir advDir) error {
+func downloadVideo(uri string, dir advDir) error {
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.Command("youtube-dl",
+		"-o", dir.File("videos/"+parsed.Host+"/%(id)s.%(format_id)s.%(ext)s"),
+		// "-k", // keep bestvideo/bestaudio fragments
+		"-r", "3M",
+		"-f", "bestvideo+bestaudio/best,bestvideo[height<=480]+bestaudio/best[height<=480]",
+		"--http-chunk-size", "3M",
+		uri,
+	)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	return errors.Wrap(err, "youtube-dl")
+}
+
+func downloadVideos(dir advDir) error {
+	f, err := os.Open(dir.File("videos.txt"))
+	if err != nil {
+		return errors.Wrap(err, "reading videos.txt")
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Text()
+		err = downloadVideo(line, dir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
+		}
+	}
+	if sc.Err() != nil {
+		return errors.Wrap(err, "reading videos.txt")
+	}
 	return nil
 }
 
@@ -146,13 +180,13 @@ func scanHTML(desc string, out chan<- string) error {
 	tz := html.NewTokenizer(strings.NewReader(desc))
 	for {
 		tt := tz.Next()
-		switch {
-		case tt == html.ErrorToken:
+		switch tt {
+		case html.ErrorToken:
 			if tz.Err() != io.EOF {
 				return tz.Err()
 			}
 			return nil
-		case tt == html.StartTagToken:
+		case html.StartTagToken, html.SelfClosingTagToken:
 			t := tz.Token()
 
 			for _, at := range t.Attr {
@@ -169,8 +203,15 @@ func scanHTML(desc string, out chan<- string) error {
 var cssTrimLeft = regexp.MustCompile(`^url\((['"]?)`)
 
 func scanURL(maybeURL string, out chan<- string) {
-	_, err := url.Parse(maybeURL)
+	if maybeURL == "" {
+		return
+	}
+
+	u, err := url.Parse(maybeURL)
 	if err == nil {
+		if u.Host == "" {
+			return
+		}
 		out <- maybeURL
 	}
 }
@@ -312,6 +353,7 @@ var videoURLs = []string{
 	"youtu.be",
 	"newgrounds.com/audio",
 	"soundcloud.com",
+	"bandcamp.com/track",
 }
 
 func archiveStory(storyID string, dir advDir) error {
@@ -385,7 +427,10 @@ func main() {
 		err = downloadResources(advDir(folder))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
-			os.Exit(1)
+		}
+		err = downloadVideos(advDir(folder))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
 		}
 	}
 }
