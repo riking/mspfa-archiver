@@ -55,6 +55,8 @@ package pcre
 import "C"
 
 import (
+	"reflect"
+	"runtime"
 	"strconv"
 	"unsafe"
 )
@@ -177,6 +179,7 @@ func (re Regexp) Groups() int {
 type Matcher struct {
 	re       Regexp
 	groups   int
+	offset   int
 	ovector  []C.int // scratch space for capture offsets
 	matches  bool    // last match was successful
 	subjects string  // one of these fields is set to record the subject,
@@ -226,6 +229,7 @@ func (m *Matcher) init(re Regexp) {
 		return
 	}
 	m.re = re
+	m.offset = 0
 	m.groups = re.Groups()
 	if ovectorlen := 3 * (1 + m.groups); len(m.ovector) < ovectorlen {
 		m.ovector = make([]C.int, ovectorlen)
@@ -243,11 +247,7 @@ func (m *Matcher) Match(subject []byte, flags int) bool {
 	length := len(subject)
 	m.subjects = ""
 	m.subjectb = subject
-	if length == 0 {
-		subject = nullbyte // make first character adressable
-	}
-	subjectptr := (*C.char)(unsafe.Pointer(&subject[0]))
-	return m.match(subjectptr, length, flags)
+	return m.runmatch(flags)
 }
 
 // Tries to match the speficied subject string to the current pattern.
@@ -256,21 +256,36 @@ func (m *Matcher) MatchString(subject string, flags int) bool {
 	if m.re.ptr == nil {
 		panic("Matcher.Match: uninitialized")
 	}
-	length := len(subject)
 	m.subjects = subject
 	m.subjectb = nil
-	if length == 0 {
-		subject = "\000" // make first character addressable
+	return m.runmatch(flags)
+}
+
+func (m *Matcher) runmatch(flags int) bool {
+	if m.subjectb != nil {
+		subjectb := m.subjectb
+		if len(subjectb) == 0 {
+			subjectb = nullbyte // make first character adressable
+		}
+		subjectptr := (*C.char)(unsafe.Pointer(&subjectb[0]))
+		return m.match(subjectptr, length, flags)
+	} else {
+		subjects := m.subjects
+		if len(subjects) == 0 {
+			subjects = "\x00"
+		}
+		// The following is a non-portable kludge to avoid a copy
+		stringhdr := (*reflect.StringHeader)(unsafe.Pointer(&subjects))
+		matched := m.match((*C.char)(stringhdr.Data), length, flags)
+		runtime.KeepAlive(subjects)
+		return matched
 	}
-	// The following is a non-portable kludge to avoid a copy
-	subjectptr := *(**C.char)(unsafe.Pointer(&subject))
-	return m.match(subjectptr, length, flags)
 }
 
 func (m *Matcher) match(subjectptr *C.char, length, flags int) bool {
 	rc := C.pcre_exec((*C.pcre)(unsafe.Pointer(&m.re.ptr[0])), nil,
-		subjectptr, C.int(length),
-		0, C.int(flags), &m.ovector[0], C.int(len(m.ovector)))
+		subjectptr, C.int(length), C.int(m.offset),
+		C.int(flags), &m.ovector[0], C.int(len(m.ovector)))
 	switch {
 	case rc >= 0:
 		m.matches = true
@@ -285,8 +300,23 @@ func (m *Matcher) match(subjectptr *C.char, length, flags int) bool {
 		strconv.Itoa(int(rc)))
 }
 
-// Returns true if a previous call to Matcher, MatcherString, Reset,
-// ResetString, Match or MatchString succeeded.
+// Advances the matcher to the next match in the subject.
+func (m *Matcher) Next(flags int) bool {
+	end := m.ovector[2*0+1]
+	m.offset = end
+	return m.runmatch(flags)
+}
+
+// Advances the matcher to the next match, starting one character after the
+// start of the previous match.  Using this will allow the regexp "aaa" to
+// match twice on the string "aaaa".
+func (m *Match) NextWithOverlap(flags int) bool {
+	start := m.ovector[2*0]
+	m.offset = start + 1
+	return m.runmatch(flags)
+}
+
+// Returns true if a previous match attempt succeeded.
 func (m *Matcher) Matches() bool {
 	return m.matches
 }
