@@ -5,12 +5,18 @@ import (
 	"flag"
 	"fmt"
 	"html/template"
+	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
+	"strings"
 
+	"github.com/glenn-brown/golang-pkg-pcre/src/pkg/pcre"
+	cssparse "github.com/gorilla/css/scanner"
 	"github.com/pkg/errors"
 	"golang.org/x/net/html"
 )
@@ -33,10 +39,10 @@ type StoryJSON struct {
 	H           float64       `json:"h"`
 	Tags        []string      `json:"t"`
 	Author      string        `json:"a"`
-	W           string        `json:"w"`
+	AuthorLink  string        `json:"w"` // contains URLs
 	Icon        string        `json:"o"` // contains URLs
 	B           float64       `json:"b"`
-	Y           template.CSS  `json:"y"` // contains URLs
+	CSS         template.CSS  `json:"y"` // contains URLs
 	J           string        `json:"j"`
 	V           string        `json:"v"`
 	F           []string      `json:"f"`
@@ -61,6 +67,13 @@ func (a advDir) URLsFile() string {
 func downloadStoryJSON(storyID string, dir advDir) error {
 	// wget --post-data "do=story&s=21746" https://mspfa.com/
 
+	_, err := os.Stat(dir.JSONFile())
+	if err == nil {
+		return nil // already downloaded
+	} else if !os.IsNotExist(err) {
+		return errors.Wrap(err, "stat adventure json destination")
+	}
+
 	absDir, err := filepath.Abs(string(dir))
 	if err != nil {
 		return errors.Wrap(err, "determining abs path")
@@ -70,22 +83,27 @@ func downloadStoryJSON(storyID string, dir advDir) error {
 		"--post-data", fmt.Sprintf("do=story&s=%s", storyID),
 		fmt.Sprintf("--warc-file=%s", filepath.Join(absDir, "adventure")),
 		"-O", advDir(absDir).JSONFile(),
-		"--warc-header", "MSPFA Archiver Tool",
+		"--warc-header", "operator: MSPFA Archiver Tool",
+		"https://mspfa.com/",
 	)
 	cmd.Dir = string(dir)
 	cmd.Stdin = nil
 	cmd.Stdout = nil
-	cmd.Stderr = nil
+	cmd.Stderr = os.Stderr
 	err = cmd.Run()
 	return errors.Wrap(err, "wget: download adventure json")
 }
 
-func htmlScanURLs(tz *html.Tokenizer, out chan<- string) {
+func scanDescription(desc string, out chan<- string) error {
+	tz := html.NewTokenizer(strings.NewReader(desc))
 	for {
 		tt := tz.Next()
 		switch {
 		case tt == html.ErrorToken:
-			return
+			if tz.Err() != io.EOF {
+				return tz.Err()
+			}
+			return nil
 		case tt == html.StartTagToken:
 			t := tz.Token()
 
@@ -101,29 +119,81 @@ func htmlScanURLs(tz *html.Tokenizer, out chan<- string) {
 	}
 }
 
-var bbRegex = map[string]*regexp.Regexp{
+var cssTrimLeft = regexp.MustCompile(`^url\((['"]?)`)
+
+func scanURL(maybeURL string, out chan<- string) {
+	_, err := url.Parse(maybeURL)
+	if err == nil {
+		out <- maybeURL
+	}
+}
+
+func scanCSS(src template.CSS, out chan<- string) {
+	sc := cssparse.New(string(src))
+	for {
+		tok := sc.Next()
+		switch tok.Type {
+		case cssparse.TokenEOF:
+			return
+		case cssparse.TokenURI:
+			matched := tok.Value
+			locs := cssTrimLeft.FindStringSubmatchIndex(matched)
+			quoteChar := matched[locs[1*2]:locs[1*2+1]]
+			matched = matched[locs[0*2+1]:]
+			matched = strings.TrimSuffix(matched, quoteChar+")")
+			fmt.Println("DEBUG: css uri extraction:", matched)
+			scanURL(matched, out)
+		}
+	}
+}
+
+var pcreFlags = pcre.CASELESS | pcre.MULTILINE
+
+var bbRegex = map[string]pcre.Regexp{
 	// Taken directly from MSPFA source
-	"url1":   regexp.MustCompile(`\[url\]([^"]*?)\[/url\]`),
-	"url2":   regexp.MustCompile(`\[url=("?)([^"]*?)\1\]((?:(?!\[url(?:=.*?)\]).)*?)\[/url\]`),
-	"img1":   regexp.MustCompile(`\[img\]([^"]*?)\[/img\]`),
-	"img3":   regexp.MustCompile(`\[img=(\d*?)x(\d*?)\]([^"]*?)\[/img\]`),
-	"flash3": regexp.MustCompile(`\[flash=(\d*?)x(\d*?)\](.*?)\[\/flash\]`),
+	"url1":   pcre.MustCompile(`\[url\]([^"]*?)\[/url\]`, pcreFlags),
+	"url2":   pcre.MustCompile(`\[url=("?)([^"]*?)\1\]((?:(?!\[url(?:=.*?)\]).)*?)\[/url\]`, pcreFlags),
+	"img1":   pcre.MustCompile(`\[img\]([^"]*?)\[/img\]`, pcreFlags),
+	"img3":   pcre.MustCompile(`\[img=(\d*?)x(\d*?)\]([^"]*?)\[/img\]`, pcreFlags),
+	"flash3": pcre.MustCompile(`\[flash=(\d*?)x(\d*?)\](.*?)\[\/flash\]`, pcreFlags),
+}
+
+var bbRegexGroup = map[string]int{
+	"url1":   1,
+	"url2":   2,
+	"img1":   1,
+	"img3":   3,
+	"flash3": 3,
 }
 
 func scanBBCode(p *Page, out chan<- string) {
+	matcher := new(pcre.Matcher)
+
 	for k, rgx := range bbRegex {
-		m := rgx.FindAllStringSubmatch(p.Body, -1)
-		for _, match := range m {
+		for matcher.ResetString(rgx, p.Body, 0); matcher.Matches(); matcher.Next(0) {
 			switch k {
 			case "url1", "img1":
-				out <- match[1]
+				out <- matcher.GroupString(1)
 			case "img2":
-				out <- match[2]
+				out <- matcher.GroupString(2)
 			case "img3", "flash3":
-				out <- match[3]
+				out <- matcher.GroupString(3)
 			}
 		}
 	}
+}
+
+func scanURLs(story *StoryJSON, out chan<- string) error {
+	for idx := range story.Pages {
+		scanBBCode(&story.Pages[idx], out)
+	}
+	scanDescription(string(story.Description), out)
+	scanURL(story.Icon, out)
+	scanCSS(story.CSS, out)
+	scanURL(story.Q, out)
+	scanURL(story.AuthorLink, out)
+
+	return nil
 }
 
 func readStoryJSON(dir advDir) (*StoryJSON, error) {
@@ -143,10 +213,10 @@ func readStoryJSON(dir advDir) (*StoryJSON, error) {
 }
 
 func archiveStory(storyID string, dir advDir) error {
-	// err := downloadStoryJSON(storyID, dir)
-	// if err != nil {
-	// return err
-	// }
+	err := downloadStoryJSON(storyID, dir)
+	if err != nil {
+		return err
+	}
 
 	story, err := readStoryJSON(dir)
 	if err != nil {
@@ -160,12 +230,24 @@ func archiveStory(storyID string, dir advDir) error {
 		close(urlChan)
 	}()
 
-	for url := range urlChan {
-		fmt.Println(url)
+	urlList := make(map[string]struct{})
+	for resource := range urlChan {
+		urlList[resource] = struct{}{}
 	}
+	resources := make([]string, 0, len(urlList))
+	for resource := range urlList {
+		resources = append(resources, resource)
+	}
+	sort.Strings(resources)
+	for _, resource := range resources {
+		fmt.Println(resource)
+	}
+	fmt.Println(len(resources), "images")
 	if scanErr != nil {
 		fmt.Println("Error while URL scanning:", scanErr)
 	}
+
+	return nil
 }
 
 func main() {

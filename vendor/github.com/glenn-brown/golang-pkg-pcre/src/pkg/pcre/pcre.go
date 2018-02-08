@@ -179,7 +179,7 @@ func (re Regexp) Groups() int {
 type Matcher struct {
 	re       Regexp
 	groups   int
-	offset   int
+	offset   C.int
 	ovector  []C.int // scratch space for capture offsets
 	matches  bool    // last match was successful
 	subjects string  // one of these fields is set to record the subject,
@@ -244,7 +244,6 @@ func (m *Matcher) Match(subject []byte, flags int) bool {
 	if m.re.ptr == nil {
 		panic("Matcher.Match: uninitialized")
 	}
-	length := len(subject)
 	m.subjects = ""
 	m.subjectb = subject
 	return m.runmatch(flags)
@@ -264,19 +263,21 @@ func (m *Matcher) MatchString(subject string, flags int) bool {
 func (m *Matcher) runmatch(flags int) bool {
 	if m.subjectb != nil {
 		subjectb := m.subjectb
-		if len(subjectb) == 0 {
+		length := len(subjectb)
+		if length == 0 {
 			subjectb = nullbyte // make first character adressable
 		}
 		subjectptr := (*C.char)(unsafe.Pointer(&subjectb[0]))
 		return m.match(subjectptr, length, flags)
 	} else {
 		subjects := m.subjects
-		if len(subjects) == 0 {
+		length := len(subjects)
+		if length == 0 {
 			subjects = "\x00"
 		}
 		// The following is a non-portable kludge to avoid a copy
 		stringhdr := (*reflect.StringHeader)(unsafe.Pointer(&subjects))
-		matched := m.match((*C.char)(stringhdr.Data), length, flags)
+		matched := m.match((*C.char)(unsafe.Pointer(stringhdr.Data)), length, flags)
 		runtime.KeepAlive(subjects)
 		return matched
 	}
@@ -284,7 +285,7 @@ func (m *Matcher) runmatch(flags int) bool {
 
 func (m *Matcher) match(subjectptr *C.char, length, flags int) bool {
 	rc := C.pcre_exec((*C.pcre)(unsafe.Pointer(&m.re.ptr[0])), nil,
-		subjectptr, C.int(length), C.int(m.offset),
+		subjectptr, C.int(length), m.offset,
 		C.int(flags), &m.ovector[0], C.int(len(m.ovector)))
 	switch {
 	case rc >= 0:
@@ -310,7 +311,7 @@ func (m *Matcher) Next(flags int) bool {
 // Advances the matcher to the next match, starting one character after the
 // start of the previous match.  Using this will allow the regexp "aaa" to
 // match twice on the string "aaaa".
-func (m *Match) NextWithOverlap(flags int) bool {
+func (m *Matcher) NextWithOverlap(flags int) bool {
 	start := m.ovector[2*0]
 	m.offset = start + 1
 	return m.runmatch(flags)
