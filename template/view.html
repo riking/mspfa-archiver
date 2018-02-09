@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+	
+	<title>{{.Name}}</title>
+	<meta charset="UTF-8">
+	<meta name="description" content="{{.PlainDesc}}">
+	<meta name="author" content="Quirky Jay">
+	<meta property="og:title" content="ElyriaBound Troll Guide">
+	<meta property="og:type" content="website">
+	<meta property="og:image" content="{{.GetIcon}}">
+	<meta property="og:site_name" content="MS Paint Fan Adventures">
+	<meta property="og:description" content="{{.PlainDesc}}">
+	<link rel="icon" href="./assets/ico.png"> <!-- Perfectly Generic Icon Courtesy of heyitskane -->
+	<link href="//fonts.googleapis.com/css?family=Press+Start+2P" rel="stylesheet">
+	<link rel="stylesheet" type="text/css" href="./assets/mspfa.css">
+	<link rel="stylesheet" type="text/css" href="./extra.css">
+</head>
+<body>
+	<div id="main">
+		<header>
+			<div class="umcontainer">
+				<div class="mspfalogo"></div>
+				<iframe class="um" src="data:text/html,"></iframe>
+			</div>
+			
+			<nav>
+				<a href="https://mspfa.com/" style="color: #ffffff;">MSPFA Home</a>
+				<span class="vbar">|</span>
+				<a href="http://www.mspaintadventures.com/" target="_blank" style="color: #ffffff;">MSPA</a>
+				<div class="heart"></div>
+				<a href="https://mspfa.com/stories/" style="color: #76d8ff;">Explore</a>
+				<span class="vbar">|</span>
+				<a href="https://mspfa.com/random/" style="color: #76d8ff;">Random</a>
+				<span class="vbar">|</span>
+				<a href="https://mspfa.com/stats/" style="color: #76d8ff;">Statistics</a>
+				<div class="heart"></div>
+				<a href="./log.html?s=20543" style="color: #2cff4b;">Log</a>
+						<span class="vbar">|</span>
+						<a href="./search.html/?s=20543" style="color: #2cff4b;">Search</a>
+						<div class="heart"></div>
+				<a href="https://mspfa.com/my/" style="color: #fffa36;">My MSPFA</a>
+				<a id="notification" href="/my/messages/" style="display: none;">0</a>
+				<span class="vbar">|</span>
+				<a href="https://discord.gg/EC5acgG" target="_blank" style="color: #fffa36;">Discord</a>
+				<div class="heart"></div>
+				<a href="#removed" style="color: #ffbc3e;">Contact</a>
+				<span class="vbar">|</span>
+				<a href="https://mspfa.com/donate/" style="color: #ffbc3e;">Donate</a>
+			</nav>
+			<div id="nopepsi" class="alert" style="display: none;">x</div>
+			<div id="warning" class="alert">MSPFA is currently under read-only mode due to extreme maintenance. It is highly recommended that you only use the site to read adventures, and nothing more. If you do try to edit or add any data on the site, it may appear to have worked, but your edits will only be temporary. Don't do that.</div>
+		</header>
+
+<div id="container">
+    <div id="slide">
+        <div id="command"></div>
+        <div id="content"></div>
+        <div id="foot">
+            <div id="links"></div>
+            <br>
+            <br>
+            <span id="prevlinks" style="display: none;">
+                <span class="footlinks">
+                    <a id="startover">Start Over</a><span> | <a id="goback">Go Back</a></span>
+                </span>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            </span>
+            <span id="gamelinks" style="display: none;">
+                <span class="footlinks">
+                    <a id="savegame" href="javascript:void(0);">Save Game</a> | <a id="loadgame" href="javascript:void(0);">Load Game</a> | <a id="deletegame" href="javascript:void(0);">Delete Game Data</a>
+                </span>
+            </span><br>
+            <br>
+        </div>
+    </div>
+    <div id="info"></div>
+</div>
+
+        <footer>
+            <div class="umcontainer">
+                <div class="mspfalogo"></div>
+                <iframe class="um" src="data:text/html,"></iframe>
+            </div>
+        </footer>
+    </div>
+    <div id="bbtoolbar" style="display: none;">
+        <input type="button" data-tag="b" title="Bold" style="background-position: 0 0;"><input type="button" data-tag="i" title="Italic" style="background-position: -22px 0;"><input type="button" data-tag="u" title="Underline" style="background-position: -44px 0;"><input type="button" data-tag="s" title="Strikethrough" style="background-position: -66px 0;">
+        <input type="button" data-tag="color" title="Color" style="background-position: 0 -22px;"><input type="button" data-tag="background" title="Background" style="background-position: -22px -22px;">
+        <input type="button" data-tag="size" title="Size" style="background-position: -44px -22px;"><input type="button" data-tag="font" title="Font" style="background-position: -66px -22px;">
+        <input type="button" data-tag="left" title="Align Left" style="background-position: 0 -44px;"><input type="button" data-tag="center" title="Align Center" style="background-position: -22px -44px;"><input type="button" data-tag="right" title="Align Right" style="background-position: -44px -44px;"><input type="button" data-tag="justify" title="Align Justify" style="background-position: -66px -44px;">
+        <input type="button" data-tag="link" title="Link" style="background-position: 0 -66px;"><input type="button" data-tag="alt" title="Alt Text" style="background-position: -22px -66px;"><input type="button" data-tag="img" title="Image" style="background-position: -44px -66px;"><input type="button" data-tag="spoiler" title="Spoiler" style="background-position: -66px -66px;"><input type="button" data-tag="flash" title="Flash" style="background-position: 0 -88px;">
+        <input type="button" data-tag="user" title="User" style="background-position: -22px -88px;">
+    </div>
+    <form id="dialog" style="display: none;">
+        <div class="major"></div>
+        <div></div>
+        <div></div>
+    </form>
+    <div id="loading"></div>
+    <script src="./assets/mspfa.js"></script>
+</body>
+</html>
+
