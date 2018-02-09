@@ -1,4 +1,31 @@
 (function() {
+	// [BEGIN] riking: Globals
+	var GLOBAL_ASSET_BASEURL = "https://mspfa.com"; // TODO: Mirror on archive.org
+	var adv404 = function() {
+		MSPFA.dialog("Error", document.createTextNode("Something's missing! "), ["Go Back"], function() {
+			history.back();
+		});
+	};
+	// Change resource URLs to archive links
+	var toArchiveURL = function(type, up) {
+		if (/^\//.test(up)) {
+			// TODO: mspfa relative
+			console.warn("found mspfa relative URL in toArchiveURL()", up);
+			return up;
+		}
+		var u = new URL(up, location);
+		if (/archive.org$/.test(u.host)) {
+			// already edited
+			return up;
+		}
+		if (type === "resource") {
+			return "./files/" + u.host + u.pathname + u.search;
+		} else if (type === "web") {
+			return "https://web.archive.org/web/" + u.href;
+		}
+	};
+	// [END]
+
 	console.log("This website was programmed almost entirely by Miroware.\nhttps://miroware.io/");
 	var magic = {};
 	magic.magic = magic;
@@ -76,8 +103,24 @@
 				data.token = idtoken;
 			}
 			var req = new XMLHttpRequest();
-			req.open("POST", "/", true);
-			req.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+			// [BEGIN] riking: Redirect requests to archive data
+			switch (data.do) {
+				case "story":
+					req.open("GET", "./adventure.json", true);
+					break;
+				// TODO case "user":
+				default:
+					setTimeout(0, function() {
+						if (!silent) {
+							MSPFA.dialog("Error", document.createTextNode("Functionality not yet implemented in archive view"), ["Ok"]);
+						}
+						if (typeof error === "function") {
+							error(404);
+						}
+					});
+					return;
+			}
+			// [END]
 			req.setRequestHeader("Accept", "application/json");
 			req.onreadystatechange = function() {
 				if(req.readyState == XMLHttpRequest.DONE) {
@@ -104,7 +147,7 @@
 										}
 										break;
 									case 401:
-										if(!retry) {
+										if(false && /* riking: disable auto login */ !retry) {
 											gapi.auth2.init().then(function(auth2) {
 												if(idtoken = auth2.currentUser.get().getAuthResponse().id_token) {
 													MSPFA.request(auth, data, success, error, silent, true);
@@ -312,6 +355,7 @@
 				break;
 			}
 		}
+		blacklisted = true; // riking: do not report JS errors
 		if(!blacklisted) {
 			if(evt.filename.indexOf(location.origin + "/js/") == 0) {
 				if(evt.error && evt.error.stack) {
@@ -462,9 +506,9 @@
 		return (["Inactive", "Ongoing", "Complete"])[id-1] || "Useless";
 	};
 	var pageIcon = new Image();
-	pageIcon.src = "/images/pages.png";
+	pageIcon.src = GLOBAL_ASSET_BASEURL + "/images/pages.png"; // riking: global assets
 	var heartIcon = new Image();
-	heartIcon.src = "/images/heart.png";
+	heartIcon.src = GLOBAL_ASSET_BASEURL + "/images/heart.png"; // riking: global assets
 	pageIcon.classList.add("smol");
 	heartIcon.classList.add("smol");
 	var edit = document.createElement("input");
@@ -507,7 +551,7 @@
 			if(input.value) {
 				img.src = input.value
 			} else {
-				img.src = "/images/wat/random.njs";
+				img.src = GLOBAL_ASSET_BASEURL + "/images/wat/random.njs"; // riking: global assets
 			}
 		}
 		input.addEventListener("change", changeSource);
@@ -1128,6 +1172,10 @@
 		["The Yellow Yard", "Hack your way into acquiring this achievement"]
 	];
 	var updateFav = function() {
+		// [BEGIN] riking: disable favorite button
+		MSPFA.dialog("Error", document.createTextNode("Favoriting is not allowed on archival copies."), ["Close"]);
+		return;
+		// [END]
 		var t = this;
 		if(!t.disabled) {
 			if(!idtoken || MSPFA.me.f) {
@@ -1161,6 +1209,10 @@
 		}
 	};
 	var updateNotify = function() {
+		// [BEGIN] riking: disable notifications
+		MSPFA.dialog("Error", document.createTextNode("Notifications are not allowed on archival copies."), ["Close"]);
+		return;
+		// [END]
 		var t = this;
 		if(!t.disabled) {
 			if(!idtoken || MSPFA.me.f) {
@@ -1195,7 +1247,7 @@
 		imga.href = "/?s=" + story.i + "&p=1";
 		var img = new Image();
 		img.classList.add("cellicon");
-		img.src = story.o || "/images/wat/random.njs?cb=" + story.i;
+		img.src = story.o || (GLOBAL_ASSET_BASEURL + "/images/wat/random.njs?cb=" + story.i); // riking: global assets
 		imga.appendChild(img);
 		td1.appendChild(imga);
 		tr.appendChild(td1);
@@ -1273,7 +1325,7 @@
 	var notification = document.querySelector("#notification");
 	var iconLink = document.querySelector("link[rel=\"icon\"]");
 	var loadNotifications = function() {
-		if(gapi.auth2.init().isSignedIn.get()) {
+		if(false && /* riking: disable notifications */ gapi.auth2.init().isSignedIn.get()) {
 			MSPFA.request(1, {
 				do: "notifications"
 			}, function(ns) {
@@ -3265,10 +3317,10 @@
 				}
 			}
 		}
-	};
+	}; // note: end of login()
 	var warning = document.querySelector("#warning");
-	document.cookie = "magic=real; path=/;";
-	if(document.cookie) {
+	// document.cookie = "magic=real; path=/;"; // riking: do not test cookies
+	if(false && document.cookie) { // riking: do not test cookies
 		try {
 			localStorage.magic = "real";
 			window.gapiLoad = function() {
@@ -3336,7 +3388,7 @@
 			warning.style.display = "";
 			warning.innerText = "It seems that you have browser storage disabled, which will cause you to experience issues while browsing the site. Please enable your browser storage.";
 		}
-	} else {
+	} else if (false) { // riking: do not show disabled-cookies warning
 		warning.style.display = "";
 		warning.innerText = "It seems that you have browser cookies disabled, which will cause you to experience issues while browsing the site. Please enable your browser cookies.";
 	}
@@ -3524,7 +3576,8 @@
 		};
 		displayArrows();
 		window.addEventListener("resize", displayArrows);
-	} else if((location.pathname == "/" && params.s != undefined) || location.pathname == "/preview/") {
+	} else if ((/\/read.html$/.test(location.pathname)) { // riking: change story view test
+		// LANDMARK: Start story view
 		var p = parseInt(params.p) || 1;
 		MSPFA.story = {};
 		var page = {};
@@ -3559,6 +3612,7 @@
 					asRawParams = as[i].href;
 				}
 				if(asRawParams.indexOf("mspfa") != 0) {
+					as[i].href = toArchiveURL("web", as[i].href); // riking: edit link URLs to archive links
 					continue;
 				}
 				if(asRawParams.indexOf("#") != -1) {
@@ -3576,6 +3630,9 @@
 				}
 				if(parseInt(asParams.s) == MSPFA.story.i) {
 					as[i].addEventListener("click", linkSlide);
+				} else { // [BEGIN] riking: redirect to archived stories, ideally
+					// TODO
+					// [END]
 				}
 			}
 		};
@@ -3587,7 +3644,7 @@
 				if(location.pathname == "/preview/") {
 					page = JSON.parse(params.d);
 				} else {
-					historyState = "/?s=" + MSPFA.story.i + "&p=" + p;
+					historyState = "?s=" + MSPFA.story.i + "&p=" + p; // riking: relative queries
 					if(location.href.slice(-historyState.length) != historyState) {
 						history.pushState(null, "", historyState);
 					}
@@ -3615,10 +3672,10 @@
 					}
 					if(backid) {
 						goback.parentNode.style.display = "";
-						goback.href = "/?s=" + MSPFA.story.i + "&p=" + backid;
+						goback.href = "?s=" + MSPFA.story.i + "&p=" + backid; // riking: relative queries
 					} else {
 						goback.parentNode.style.display = "none";
-						goback.href = "/?s=" + MSPFA.story.i + "&p=" + p;
+						goback.href = "?s=" + MSPFA.story.i + "&p=" + p; // riking: relative queries
 					}
 					if(p > 1 && location.pathname != "/preview/") {
 						prevlinks.style.display = "";
@@ -3633,7 +3690,7 @@
 					}
 					command.appendChild(MSPFA.parseBBCode(page.c || MSPFA.story.m));
 					var b = MSPFA.parseBBCode("\n" + page.b);
-					var imgs = b.querySelectorAll("img, video, iframe, canvas, object");
+					var imgs = b.querySelectorAll("img, video, iframe, canvas, object, embed"); // riking: include <embed>
 					var pad = getComputedStyle(slidee);
 					if(pad) {
 						pad = parseFloat(pad.paddingLeft) + parseFloat(pad.paddingRight);
@@ -3649,8 +3706,26 @@
 						imgs[i].classList.add("major");
 						imgs[i].addEventListener("load", loadImg);
 						imgs[i].addEventListener("error", loadImg);
+						// [BEGIN] riking: Change resource URLs to archive links
+						switch (imgs[i].tagName) {
+						case "IMG":
+						case "IFRAME":
+						case "EMBED":
+							imgs[i].src = toArchiveURL("resource", imgs[i].src);
+							break;
+						case "OBJECT":
+							imgs[i].data = toArchiveURL("resource", imgs[i].data);
+						case "VIDEO":
+							if (imgs[i].src) {
+								imgs[i].src = toArchiveURL("resource", imgs[i].src);
+							} else {
+								// TODO - edit each <source> url
+							}
+						}
+						// [END]
 					}
 					if(location.pathname != "/preview/") {
+						// riking: slinkSlide changes URLs to web-archive URLs
 						slinkSlide(b.querySelectorAll("a[href], area[href]"));
 					}
 					content.appendChild(b);
@@ -3662,7 +3737,7 @@
 							if(MSPFA.story.p[page.n[i]-1]) {
 								var line = document.createElement("div");
 								var link = document.createElement("a");
-								link.href = "/?s=" + MSPFA.story.i + "&p=" + page.n[i];
+								link.href = "?s=" + MSPFA.story.i + "&p=" + page.n[i]; // riking: relative queries
 								link.appendChild(MSPFA.parseBBCode(MSPFA.story.p[page.n[i]-1].c || MSPFA.story.m));
 								link.addEventListener("click", linkSlide);
 								line.appendChild(link);
@@ -3688,7 +3763,7 @@
 					}
 					slidefdone = true;
 				} else {
-					location.replace("/?s=20784&p=1");
+					adv404(); // riking: 404 handler
 				}
 			} catch(err) {
 				if(location.pathname == "/preview/") {
@@ -3701,16 +3776,18 @@
 		var linkSlide = function(evt) {
 			if(!evt.ctrlKey && !evt.metaKey) {
 				evt.preventDefault();
-				MSPFA.page(parseInt(this.href.slice(this.href.indexOf("p=")+2)) || 1);
+				// [BEGIN] riking: change parsing to URLSearchParams
+				var u = new URL(this.href, location);
+				MSPFA.page(parseInt(u.searchParams.get('p')) || 1);
+				// [END]
 			}
 		};
 		MSPFA.request(0, {
 			do: "story",
-			s: params.s
 		}, function(v) {
 			MSPFA.story = v;
 			if(MSPFA.story.l || (!MSPFA.story.p.length && location.pathname != "/preview/")) {
-				location.replace("/?s=20784&p=1");
+				adv404(); // riking: replace story 404 handler
 				return;
 			}
 			document.title = MSPFA.story.n;
@@ -3746,9 +3823,10 @@
 				for(var i = 0; i < imports.length; i++) {
 					if(registeredImports.indexOf(imports[i] == -1)) {
 						try {
+							cssString.replace(imports[i], toArchiveURL("resource", imports[i]));
 							registeredImports.push(imports[i]);
 							var req = new XMLHttpRequest();
-							req.open("GET", imports[i], true);
+							req.open("GET", toArchiveURL("resource", imports[i]), true);
 							req.onreadystatechange = function() {
 								if(req.readyState == XMLHttpRequest.DONE && req.status == 200 && req.responseText) {
 									registerPageRanges(req.responseText, true);
@@ -3760,17 +3838,18 @@
 				}
 			};
 			registerPageRanges(MSPFA.story.y);
-			startover.href = "/?s=" + MSPFA.story.i + "&p=1";
+			startover.href = "?s=" + MSPFA.story.i + "&p=1"; // riking: relative queries
 			startover.addEventListener("click", linkSlide);
 			window.addEventListener("keydown", function(evt) {
 				if(!page || page.k || document.querySelector("textarea:focus, input[type=\"text\"]:focus, input[type=\"number\"]:focus, input[type=\"password\"]:focus, input[type=\"email\"]:focus")) {
 					return;
 				}
 				var prevent = true;
+				// TODO: allow multiple next/prev keycodes
 				switch(evt.keyCode) {
 					case MSPFA.me.s.k.p:
 						if(location.pathname != "/preview/") {
-							var clink = "/?s=" + MSPFA.story.i + "&p=" + p;
+							var clink = "?s=" + MSPFA.story.i + "&p=" + p; // riking: relative queries
 							if(goback.href.indexOf(clink) != goback.href.length-clink.length) {
 								goback.click();
 							}
@@ -3816,7 +3895,7 @@
 				var icon = new Image();
 				icon.id = "storyicon";
 				icon.width = icon.height = 150;
-				icon.src = MSPFA.story.o || "/images/wat/random.njs";
+				icon.src = MSPFA.story.o || (GLOBAL_ASSET_BASEURL + "/images/wat/random.njs"); // riking: global asset url
 				icon.style.marginRight = "6px";
 				td1.appendChild(icon);
 				tr1.appendChild(td1);
@@ -3829,24 +3908,26 @@
 				td2.appendChild(title);
 				td2.appendChild(document.createTextNode(" "));
 				var sedit = edit.cloneNode(false);
-				if(idtoken && (MSPFA.story.e.indexOf(MSPFA.me.i) != -1 || MSPFA.me.p)) {
+				// riking: disable edit button
+				if(false && (idtoken && (MSPFA.story.e.indexOf(MSPFA.me.i) != -1 || MSPFA.me.p))) {
 					sedit.style.display = "";
 				}
 				sedit.addEventListener("click", function() {
 					location.href = "/my/stories/info/?s=" + MSPFA.story.i;
 				});
-				td2.appendChild(sedit);
+				// td2.appendChild(sedit); // riking: disable edit button
 				td2.appendChild(document.createTextNode(" "));
 				var sfav = fav.cloneNode(false);
 				sfav._s = MSPFA.story;
 				sfav.addEventListener("click", updateFav);
-				td2.appendChild(sfav);
+				// td2.appendChild(sfav); // riking: disable favorite button
 				td2.appendChild(document.createTextNode(" "));
 				var snotify = notify.cloneNode(false);
 				snotify.addEventListener("click", updateNotify);
-				td2.appendChild(snotify);
+				// td2.appendChild(snotify); // riking: disable notify button
 				var gi = MSPFA.story.g.indexOf(MSPFA.me.i);
-				if(idtoken && (MSPFA.story.f.indexOf(MSPFA.me.i) != -1 || gi != -1)) {
+				// riking: disable favorite button
+				if(false && (idtoken && (MSPFA.story.f.indexOf(MSPFA.me.i) != -1 || gi != -1))) {
 					sfav.classList.remove("unlit");
 					sfav.classList.add("lit");
 					snotify.style.display = "";
@@ -3924,7 +4005,7 @@
 					var thiscmd = document.createElement("span");
 					thiscmd.appendChild(document.createTextNode(fetchDate(new Date(MSPFA.story.p[i].d)) + " - "));
 					var cmdlink = document.createElement("a");
-					cmdlink.href = "/?s=" + MSPFA.story.i + "&p=" + (i+1);
+					cmdlink.href = "?s=" + MSPFA.story.i + "&p=" + (i+1); // riking: relative queries
 					cmdlink.appendChild(document.createTextNode("\""));
 					cmdlink.appendChild(MSPFA.parseBBCode(MSPFA.story.p[i].c || MSPFA.story.m));
 					cmdlink.appendChild(document.createTextNode("\""));
@@ -3938,7 +4019,7 @@
 				var viewAllPagesContainer = document.createElement("div");
 				viewAllPagesContainer.style.textAlign = "center";
 				var viewAllPages = document.createElement("a");
-				viewAllPages.href = "/log/?s=" + MSPFA.story.i;
+				viewAllPages.href = "./log.html/?s=" + MSPFA.story.i; // riking: redirect log url
 				viewAllPages.style.fontSize = "14px";
 				viewAllPages.innerText = "VIEW ALL PAGES";
 				viewAllPagesContainer.appendChild(viewAllPages);
@@ -3961,7 +4042,7 @@
 				td4.style.height = (theight-Math.max(td1.offsetHeight, td2.offsetHeight)) + "px";
 				infoc.appendChild(t);
 				info.appendChild(infoe);
-				if(MSPFA.story.b) {
+				if(false && MSPFA.story.b) { // riking: Disable comments
 					var newcommentc = document.createElement("form");
 					newcommentc.id = "newcomment";
 					newcommentc.appendChild(document.createTextNode("Post a new comment:"));
@@ -4280,60 +4361,34 @@
 				}
 				gamelinks.style.display = "";
 				document.querySelector("#savegame").addEventListener("click", function() {
-					if(!idtoken || MSPFA.me.f) {
-						MSPFA.dialog("Error", document.createTextNode("You must be logged in to load your adventure progress."), ["Log in", "Cancel"], function(output) {
-							if(output == "Log in") {
-								location.href = "/login/?r=" + encodeURIComponent(location.href);
-							}
-						});
-					} else {
-						MSPFA.request(1, {
-							do: "game",
-							s: MSPFA.story.i,
-							p: p,
-							g: "save"
-						});
-					}
+					// [BEGIN] riking: Replace save implementation
+					var saveTable = JSON.parse(localStorage.mspfa_save || "{}");
+					saveTable[MSPFA.story.i] = p;
+					localStorage.mspfa_save = JSON.stringify(saveTable);
+					MSPFA.dialog("Saved", document.createTextNode("Saved your location at page " + p + " locally. Click \"Load Game\" to return to this point."), ["Ok"]);
+					return;
+					// [END]
 				});
 				document.querySelector("#loadgame").addEventListener("click", function() {
-					if(!idtoken || MSPFA.me.f) {
-						MSPFA.dialog("Error", document.createTextNode("You must be logged in to load your adventure progress."), ["Log in", "Cancel"], function(output) {
-							if(output == "Log in") {
-								location.href = "/login/?r=" + encodeURIComponent(location.href);
-							}
-						});
+					// [BEGIN] riking: Replace save implementation
+					var saveTable = JSON.parse(localStorage.mspfa_save || "{}");
+					var g = saveTable[MSPFA.story.i];
+					if (g) {
+						MSPFA.page(g);
 					} else {
-						MSPFA.request(1, {
-							do: "game",
-							s: MSPFA.story.i,
-							g: "load"
-						}, function(g) {
-							if(g) {
-								MSPFA.page(g);
-							} else {
-								MSPFA.dialog("Error", document.createTextNode("You did not save your game!"), ["Okay"]);
-							}
-						});
+						MSPFA.dialog("No Data", document.createTextNode("No save data found. Remember that saving is local to your computer."), ["Ok"]);
 					}
+					return;
+					// [END]
 				});
 				document.querySelector("#deletegame").addEventListener("click", function() {
-					if(!idtoken || MSPFA.me.f) {
-						MSPFA.dialog("Error", document.createTextNode("You must be logged in to delete your adventure progress."), ["Log in", "Cancel"], function(output) {
-							if(output == "Log in") {
-								location.href = "/login/?r=" + encodeURIComponent(location.href);
-							}
-						});
-					} else {
-						MSPFA.request(1, {
-							do: "game",
-							s: MSPFA.story.i,
-							g: "delete"
-						}, function(g) {
-							if(!g || isNaN(g)) {
-								MSPFA.dialog("Error", document.createTextNode("You did not save your game!"), ["Okay"]);
-							}
-						});
-					}
+					// [BEGIN] riking: Replace save implementation
+					var saveTable = JSON.parse(localStorage.mspfa_save || "{}");
+					saveTable[MSPFA.story.i] = undefined;
+					localStorage.mspfa_save = JSON.stringify(saveTable);
+					// MSPFA.dialog("Saved", document.createTextNode("Removed save data."), ["Ok"]);
+					return;
+					// [END]
 				});
 			}
 			MSPFA.page(p);
@@ -4348,7 +4403,7 @@
 			}
 		}, function(status) {
 			if(status == 404) {
-				location.replace("/?s=20784&p=1");
+				adv404(); // riking: replace 404
 			}
 		}, true);
 	} else if(location.pathname == "/login/") {
@@ -4593,23 +4648,22 @@
 			tagselect.options[0].selected = true;
 		});
 		explore.style.opacity = "";
-	} else if(location.pathname == "/log/") {
+	} else if ((/\/log.html$/).test(location.pathname)) { // riking: log.html
 		var pages = document.querySelector("#pages");
 		MSPFA.request(0, {
 			do: "story",
-			s: params.s
 		}, function(story) {
 			if(!story.l && story.p.length) {
 				var storyname = document.querySelector("#storyname");
 				storyname.innerText = story.n;
-				storyname.href = "/?s=" + story.i + "&p=1";
+				storyname.href = "view.html?s=" + story.i + "&p=1"; // riking: relative paths
 				for(var i = story.p.length-1; i >= 0; i--) {
 					if(i < story.p.length-1) {
 						pages.appendChild(document.createElement("br"));
 					}
 					pages.appendChild(document.createTextNode(fetchDate(new Date(story.p[i].d)) + " - "));
 					var cmdlink = document.createElement("a");
-					cmdlink.href = "/?s=" + story.i + "&p=" + (i+1);
+					cmdlink.href = "view.html?s=" + story.i + "&p=" + (i+1); // riking: relative paths
 					cmdlink.appendChild(document.createTextNode("\""));
 					cmdlink.appendChild(MSPFA.parseBBCode(story.p[i].c || story.m));
 					cmdlink.appendChild(document.createTextNode("\""));
@@ -4625,6 +4679,7 @@
 			}
 		}, true);
 	} else if(location.pathname == "/search/") {
+		return; // riking: disable search
 		var pages = document.querySelector("#pages");
 		MSPFA.request(0, {
 			do: "story",
@@ -4795,17 +4850,7 @@
 			}
 		}, true);
 	} else if(location.pathname == "/random/") {
-		MSPFA.request(0, {
-			do: "stories",
-			n: "",
-			t: "",
-			h: 14,
-			o: "random",
-			p: "p",
-			m: 1
-		}, function(s) {
-			location.replace("/?s=" + s[0].i + "&p=1");
-		});
+		location.replace("https://mspfa.com/random"); // riking: direct random to actual site
 	} else if(location.pathname == "/donate/") {
 		var donators = document.querySelector("#donators");
 		MSPFA.request(0, {
