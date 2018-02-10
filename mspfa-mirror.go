@@ -206,6 +206,48 @@ func downloadVideos(dir advDir) error {
 	}
 	return nil
 }
+func toArchiveURL(up string) string {
+	u, err := url.Parse(up)
+	if err != nil {
+		return up
+	}
+	if u.RawQuery == "" {
+		return fmt.Sprintf("./files/%s%s", u.Host, u.Path)
+	}
+	return fmt.Sprintf("./files/%s%s?%s", u.Host, u.Path, u.RawQuery)
+}
+
+// for templates
+func (sj *StoryJSON) PlainDesc() string {
+	var buf bytes.Buffer
+
+	// Grab all text from description
+	tz := html.NewTokenizer(strings.NewReader(string(sj.Desc)))
+	for {
+		tt := tz.Next()
+		switch tt {
+		case html.ErrorToken:
+			s := buf.String()
+			if strings.TrimSpace(s) == "" {
+				return "(no description)"
+			}
+			return s
+		case html.TextToken:
+			buf.WriteString(strings.TrimSpace(tz.Token().Data))
+		}
+	}
+}
+
+func (sj *StoryJSON) GetIcon() string {
+	if sj.Icon != "" {
+		return toArchiveURL(sj.Icon)
+	}
+	return "./assets/wat/wat.njs." + strconv.Itoa(rand.New(rand.NewSource(sj.ID)).Intn(4))
+}
+
+func (sj *StoryJSON) FooterImages() string {
+	return sj.footerImages
+}
 
 func writeHTML(story *StoryJSON, dir advDir, tmpl *template.Template, which string) error {
 	destFile, err1 := os.Create(dir.File(which + ".html"))
@@ -583,47 +625,4 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
 		}
 	}
-}
-
-func toArchiveURL(up string) string {
-	u, err := url.Parse(up)
-	if err != nil {
-		return up
-	}
-	if u.RawQuery == "" {
-		return fmt.Sprintf("./files/%s%s", u.Host, u.Path)
-	}
-	return fmt.Sprintf("./files/%s%s?%s", u.Host, u.Path, u.RawQuery)
-}
-
-// for templates
-func (sj *StoryJSON) PlainDesc() string {
-	var buf bytes.Buffer
-
-	// Grab all text from description
-	tz := html.NewTokenizer(strings.NewReader(string(sj.Desc)))
-	for {
-		tt := tz.Next()
-		switch tt {
-		case html.ErrorToken:
-			s := buf.String()
-			if strings.TrimSpace(s) == "" {
-				return "(no description)"
-			}
-			return s
-		case html.TextToken:
-			buf.WriteString(strings.TrimSpace(tz.Token().Data))
-		}
-	}
-}
-
-func (sj *StoryJSON) GetIcon() string {
-	if sj.Icon != "" {
-		return toArchiveURL(sj.Icon)
-	}
-	return "./assets/wat/wat.njs." + strconv.Itoa(rand.New(rand.NewSource(sj.ID)).Intn(4))
-}
-
-func (sj *StoryJSON) FooterImages() string {
-	return sj.footerImages
 }
