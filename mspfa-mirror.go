@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"io/ioutil"
+	"math/rand"
 	"net/url"
 	"os"
 	"os/exec"
@@ -16,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/glenn-brown/golang-pkg-pcre/src/pkg/pcre"
@@ -63,8 +66,8 @@ type StoryJSON struct {
 	Q         string        `json:"q"` // contains URLs
 	X         string        `json:"x"`
 
-	// Did we download an icon.png
-	GotIcon bool `json:"-"`
+	// used by template
+	footerImages string `json:"-"`
 }
 
 type RscType int
@@ -204,8 +207,94 @@ func downloadVideos(dir advDir) error {
 	return nil
 }
 
-func copyAssets(dir advDir) error {
+func writeHTML(story *StoryJSON, dir advDir, tmpl *template.Template, which string) error {
+	destFile, err1 := os.Create(dir.File(which + ".html"))
+	if err1 != nil {
+		return errors.Wrapf(err1, "write %s.html", which)
+	}
+	err1 = tmpl.Execute(destFile, story)
+	err2 := destFile.Close()
+	if err1 != nil {
+		return errors.Wrapf(err1, "write %s.html", which)
+	}
+	if err2 != nil {
+		return errors.Wrapf(err2, "write %s.html", which)
+	}
+	return nil
+}
 
+func copyAsset(name string, dir advDir, wg *sync.WaitGroup) error {
+	dest, err := os.Create(dir.File("assets/" + name))
+	if err != nil {
+		panic(err)
+	}
+	src, err := os.Open("template/assets/" + name)
+	if err != nil {
+		panic(err)
+	}
+	go func() {
+		defer wg.Done()
+		defer dest.Close()
+		defer src.Close()
+		io.Copy(dest, src)
+	}()
+	return nil
+}
+
+func copyAssets(story *StoryJSON, dir advDir) error {
+	var wg sync.WaitGroup
+	fmt.Println("Copying assets...")
+
+	os.Mkdir(dir.File("assets"), 0755)
+	assets, err := ioutil.ReadDir("template/assets/")
+	if err != nil {
+		panic(err)
+	}
+	for _, fent := range assets {
+		name := fent.Name()
+		if name != "random" && name != "wat" {
+			wg.Add(1)
+			copyAsset(name, dir, &wg)
+		}
+	}
+	wg.Wait()
+
+	os.Mkdir(dir.File("assets/wat"), 0755)
+	wg.Add(4)
+	for i := 0; i < 4; i++ {
+		copyAsset(fmt.Sprintf("wat/wat.njs.%d", i), dir, &wg)
+	}
+	os.Mkdir(dir.File("assets/random"), 0755)
+	// A consistent random based on story ID is used to reduce filesize
+	// (there are ~80 possible images)
+	wg.Add(10)
+	rand := rand.New(rand.NewSource(story.ID))
+	var choices bytes.Buffer
+	for i := 0; i < 10; i++ {
+		n := rand.Intn(80)
+		if i != 0 {
+			choices.WriteByte(',')
+		}
+		fmt.Fprint(&choices, n)
+		copyAsset(fmt.Sprintf("random/random.njs.%d", n), dir, &wg)
+	}
+	story.footerImages = choices.String()
+	fmt.Println(story.footerImages)
+	wg.Wait()
+
+	fmt.Println("Writing view HTML...")
+	for _, f := range [...]string{"view", "log", "search"} {
+		tmpl, err := template.ParseFiles("template/"+f+".fragment.html", "template/layout.html")
+		if err != nil {
+			panic(err)
+		}
+		err = writeHTML(story, dir, tmpl, f)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 var seenElementTypes = make(map[string]bool)
@@ -322,7 +411,11 @@ func scanURLs(story *StoryJSON, out chan<- Rsc) error {
 		scanBBCode(&story.Pages[idx], out)
 	}
 	scanHTML(string(story.Desc), out)
-	scanURL(story.Icon, out)
+	if strings.HasPrefix(story.Icon, "/images") {
+
+	} else {
+		scanURL(story.Icon, out)
+	}
 	scanCSS(story.CSS, out)
 	scanURL(story.Q, out)
 	scanURL(story.AuthLink, out)
@@ -439,6 +532,11 @@ func archiveStory(storyID string, dir advDir) error {
 
 	writeURLsFile(urlList, videoList, dir)
 
+	err = copyAssets(story, dir)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -492,9 +590,13 @@ func toArchiveURL(up string) string {
 	if err != nil {
 		return up
 	}
-	return fmt.Sprintf("./files/%s/%s%s", u.Host, u.RawPath, u.RawQuery)
+	if u.RawQuery == "" {
+		return fmt.Sprintf("./files/%s%s", u.Host, u.Path)
+	}
+	return fmt.Sprintf("./files/%s%s?%s", u.Host, u.Path, u.RawQuery)
 }
 
+// for templates
 func (sj *StoryJSON) PlainDesc() string {
 	var buf bytes.Buffer
 
@@ -510,7 +612,7 @@ func (sj *StoryJSON) PlainDesc() string {
 			}
 			return s
 		case html.TextToken:
-			buf.WriteString(tz.Token().Data)
+			buf.WriteString(strings.TrimSpace(tz.Token().Data))
 		}
 	}
 }
@@ -519,8 +621,9 @@ func (sj *StoryJSON) GetIcon() string {
 	if sj.Icon != "" {
 		return toArchiveURL(sj.Icon)
 	}
-	if sj.GotIcon {
-		return "./icon.png"
-	}
-	return "https://mspfa.com/images/wat.njs" // TODO - archive resources
+	return "./assets/wat/wat.njs." + strconv.Itoa(rand.New(rand.NewSource(sj.ID)).Intn(4))
+}
+
+func (sj *StoryJSON) FooterImages() string {
+	return sj.footerImages
 }

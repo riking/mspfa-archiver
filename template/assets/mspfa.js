@@ -30,6 +30,10 @@
 		var choice = ary[Math.floor(Math.random() * ary.length)];
 		el.style.backgroundImage = "url(\"./assets/random/random.njs." + choice + "\")";
 	});
+	function randomWat() {
+		var choice = Math.floor(Math.random() * 4);
+		return "./assets/wat/wat.njs." + choice;
+	}
 	// [END]
 
 	console.log("This website was programmed almost entirely by Miroware.\nhttps://miroware.io/");
@@ -105,17 +109,15 @@
 		request: function(auth, data, success, error, silent, retry) {
 			requests++;
 			loading.classList.add("active");
-			if(auth) {
-				data.token = idtoken;
-			}
-			var req = new XMLHttpRequest();
 			// [BEGIN] riking: Redirect requests to archive data
+			var req = new XMLHttpRequest();
 			switch (data.do) {
 				case "story":
 					req.open("GET", "./adventure.json", true);
 					break;
 				// TODO case "user":
 				default:
+					console.warn("Dropping request:", data);
 					setTimeout(0, function() {
 						if (!silent) {
 							MSPFA.dialog("Error", document.createTextNode("Functionality not yet implemented in archive view"), ["Ok"]);
@@ -124,6 +126,11 @@
 							error(404);
 						}
 					});
+
+					requests--;
+					if(!requests) {
+						loading.classList.remove("active");
+					}
 					return;
 			}
 			// [END]
@@ -134,10 +141,12 @@
 					if(!requests) {
 						loading.classList.remove("active");
 					}
-					if(req.status) {
+					// [BEGIN] riking: handle file: protocol, remove X-Magic
+					if(req.status || location.protocol === "file:") {
 						statusType = Math.floor(req.status/100);
-						if(req.getResponseHeader("X-Magic") == "real" || statusType == 5) {
-							if(statusType == 2) {
+						if(true || statusType == 5) {
+							if(statusType == 2 || location.protocol === "file:") {
+								// [END]
 								var res;
 								if(req.responseText) {
 									res = JSON.parse(req.responseText);
@@ -512,9 +521,9 @@
 		return (["Inactive", "Ongoing", "Complete"])[id-1] || "Useless";
 	};
 	var pageIcon = new Image();
-	pageIcon.src = GLOBAL_ASSET_BASEURL + "/images/pages.png"; // riking: global assets
+	pageIcon.src = "./assets/pages.png"; // riking: global assets
 	var heartIcon = new Image();
-	heartIcon.src = GLOBAL_ASSET_BASEURL + "/images/heart.png"; // riking: global assets
+	heartIcon.src = "./assets/heart.png"; // riking: global assets
 	pageIcon.classList.add("smol");
 	heartIcon.classList.add("smol");
 	var edit = document.createElement("input");
@@ -557,7 +566,7 @@
 			if(input.value) {
 				img.src = input.value
 			} else {
-				img.src = GLOBAL_ASSET_BASEURL + "/images/wat/random.njs"; // riking: global assets
+				img.src = randomWat(); // riking: move random images to clientside
 			}
 		}
 		input.addEventListener("change", changeSource);
@@ -1123,7 +1132,7 @@
 								td1.style.width = "64px";
 								var img = new Image();
 								img.classList.add("cellicon");
-								img.src = user.o || "/images/wat/random.njs?cb=" + user.i;
+								img.src = user.o || (randomWat() + "?cb=" + user.i); // riking: move random images to clientside
 								img.style.width = img.style.height = "32px";
 								td1.appendChild(img);
 								tr.appendChild(td1);
@@ -1253,7 +1262,7 @@
 		imga.href = "/?s=" + story.i + "&p=1";
 		var img = new Image();
 		img.classList.add("cellicon");
-		img.src = story.o || (GLOBAL_ASSET_BASEURL + "/images/wat/random.njs?cb=" + story.i); // riking: global assets
+		img.src = story.o || (randomWat() + "?cb=" + story.i); // riking: move random images to clientside
 		imga.appendChild(img);
 		td1.appendChild(imga);
 		tr.appendChild(td1);
@@ -1313,7 +1322,7 @@
 		imga.href = "/user/?u=" + user.i;
 		var img = new Image();
 		img.classList.add("cellicon");
-		img.src = user.o || "/images/wat/random.njs?cb=" + user.i;
+		img.src = user.o || (randomWat() + "?cb=" + user.i); // riking: move random images to clientside
 		imga.appendChild(img);
 		td1.appendChild(imga);
 		tr.appendChild(td1);
@@ -1571,7 +1580,7 @@
 							var td1 = document.createElement("td");
 							var img = new Image();
 							img.classList.add("cellicon");
-							img.src = s[i].o || "/images/wat/random.njs?cb=" + s[i].i;
+							img.src = s[i].o || (randomWat() + "?cb=" + s[i].i); // riking: move random images to clientside
 							td1.appendChild(img);
 							tr.appendChild(td1);
 							var td2 = document.createElement("td");
@@ -3096,7 +3105,7 @@
 								td1.style.verticalAlign = "top";
 								var img = new Image();
 								img.classList.add("cellicon");
-								img.src = m.u[msi.f].o || "/images/wat/random.njs?cb=" + msi.i;
+								img.src = m.u[msi.f].o || (randomWat() + "?cb=" + msi.i); // riking: move random images to clientside
 								td1.appendChild(img);
 								tr.appendChild(td1);
 								var td2 = document.createElement("td");
@@ -3409,7 +3418,7 @@
 			s.href = "/?s=" + story.i + "&p=1";
 			var icon = new Image();
 			icon.width = icon.height = 150;
-			icon.src = story.o || "/images/wat/random.njs?cb=" + story.i;
+			icon.src = story.o || (randomWat() + "?cb=" + story.i); // riking: move random images to clientside
 			s.appendChild(icon);
 			s.appendChild(document.createElement("br"));
 			var name = document.createElement("span");
@@ -3755,6 +3764,8 @@
 					while(ctb.lastChild) {
 						ctb.removeChild(ctb.lastChild);
 					}
+					// [BEGIN] riking: remove um refresh
+					/*
 					try {
 						for(var i = 0; i < ums.length; i++) {
 							if(ums[i].contentWindow) {
@@ -3762,6 +3773,8 @@
 							}
 						}
 					} catch(err) {}
+					*/
+					// [END]
 					for(var i = 0; i < MSPFA.slide.length; i++) {
 						if(typeof MSPFA.slide[i] == "function") {
 							MSPFA.slide[i](p, i);
@@ -3901,12 +3914,7 @@
 				var icon = new Image();
 				icon.id = "storyicon";
 				icon.width = icon.height = 150;
-				// [BEGIN] riking: move random images to clientside
-				icon.src = MSPFA.story.o || (function() {
-					var r = Math.floor(Math.random() * 4);
-					return "./assets/wat/wat.njs." + r;
-				})();
-				// [END]
+				icon.src = MSPFA.story.o || randomWat(); // riking: move random images to clientside
 				icon.style.marginRight = "6px";
 				td1.appendChild(icon);
 				tr1.appendChild(td1);
@@ -4266,7 +4274,7 @@
 								var imglink = document.createElement("a");
 								var img = new Image();
 								img.classList.add("cellicon");
-								img.src = c.u[c.c[i].u].o || "/images/wat/random.njs?cb=" + c.c[i].d;
+								img.src = c.u[c.c[i].u].o || (randomWat() + "?cb=" + c.c[i].d); // riking: move random images to clientside
 								imglink.appendChild(img);
 								ctd1.appendChild(imglink);
 								ctr.appendChild(ctd1);
@@ -4543,7 +4551,7 @@
 						imgl.href = "/?s=" + s[i].i + "&p=1";
 						var img = new Image();
 						img.classList.add("cellicon");
-						img.src = s[i].o || "/images/wat/random.njs?cb=" + s[i].i;
+						img.src = s[i].o || (randomWat() + "?cb=" + s[i].i); // riking: move random images to clientside
 						img.title = img.alt = s[i].n;
 						imgl.appendChild(img);
 						userstories.appendChild(imgl);
@@ -4689,8 +4697,7 @@
 				location.replace("/?s=20784&p=1");
 			}
 		}, true);
-	} else if(location.pathname == "/search/") {
-		return; // riking: disable search
+	} else if ((/\/search.html$/).test(location.pathname)) { // riking: search.html
 		var pages = document.querySelector("#pages");
 		MSPFA.request(0, {
 			do: "story",

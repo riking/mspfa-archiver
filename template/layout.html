@@ -6,7 +6,7 @@
 	<meta charset="UTF-8">
 	<meta name="description" content="{{.PlainDesc}}">
 	<meta name="author" content="Quirky Jay">
-	<meta property="og:title" content="ElyriaBound Troll Guide">
+	<meta property="og:title" content="{{.Name}}">
 	<meta property="og:type" content="website">
 	<meta property="og:image" content="{{.GetIcon}}">
 	<meta property="og:site_name" content="MS Paint Fan Adventures">
@@ -14,7 +14,7 @@
 	<link rel="icon" href="./assets/ico.png"> <!-- Perfectly Generic Icon Courtesy of heyitskane -->
 	<link href="https://fonts.googleapis.com/css?family=Press+Start+2P" rel="stylesheet">
 	<link rel="stylesheet" type="text/css" href="./assets/mspfa.css">
-	<link rel="stylesheet" type="text/css" href="./extra.css">
+	<link rel="stylesheet" type="text/css" href="./assets/extra.css">
 </head>
 <body>
 	<div id="main">
@@ -37,7 +37,7 @@
 				<div class="heart"></div>
 				<a href="./log.html?s=20543" style="color: #2cff4b;">Log</a>
 						<span class="vbar">|</span>
-						<a href="./search.html/?s=20543" style="color: #2cff4b;">Search</a>
+						<a href="./search.html?s=20543" style="color: #2cff4b;">Search</a>
 						<div class="heart"></div>
 				<a href="https://mspfa.com/my/" style="color: #fffa36;">My MSPFA</a>
 				<a id="notification" href="/my/messages/" style="display: none;">0</a>
@@ -51,7 +51,7 @@
 			<div id="nopepsi" class="alert" style="display: none;">x</div>
 			<div id="warning" class="alert">MSPFA is currently under read-only mode due to extreme maintenance. It is highly recommended that you only use the site to read adventures, and nothing more. If you do try to edit or add any data on the site, it may appear to have worked, but your edits will only be temporary. Don't do that.</div>
 		</header>
-{{template .Container}}
+{{template "container"}}
         <footer>
             <div class="umcontainer">
                 <div class="mspfalogo" data-choices={{.FooterImages}}></div>
