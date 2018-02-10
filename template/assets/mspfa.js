@@ -1272,7 +1272,7 @@
 		var td2 = document.createElement("td");
 		var t = document.createElement("a");
 		t.classList.add("major");
-		t.href = "/?s=" + story.i + "&p=1";
+		t.href = "?s=" + story.i + "&p=1"; // riking: relative queries
 		t.innerText = story.n;
 		td2.appendChild(t);
 		td2.appendChild(document.createTextNode(" "));
@@ -1590,7 +1590,7 @@
 							var t = document.createElement("a");
 							t.classList.add("major");
 							if(s[i].p) {
-								t.href = "/?s=" + s[i].i + "&p=1";
+								t.href = "?s=" + s[i].i + "&p=1"; // riking: relative queries
 							}
 							t.innerText = s[i].n;
 							td2.appendChild(t);
@@ -1842,7 +1842,7 @@
 							}
 							if(!story.l) {
 								if(story.p.length) {
-									storyname.href = "/?s=" + story.i + "&p=1";
+									storyname.href = "?s=" + story.i + "&p=1"; // riking: relative queries
 								}
 								deletestory.addEventListener("click", function() {
 									var msg = document.createElement("span");
@@ -2055,11 +2055,11 @@
 							for(var i = 0; i < unsaved.length; i++) {
 								pages[unsaved[i]]._new = false;
 								pages[unsaved[i]].save.disabled = true;
-								pages[unsaved[i]].querySelector("a").href = "/?s=" + story.i + "&p=" + (unsaved[i]+1);
+								pages[unsaved[i]].querySelector("a").href = "?s=" + story.i + "&p=" + (unsaved[i]+1); // riking: relative queries
 							}
 							unsaved = [];
 							saveall.disabled = true;
-							storyname.href = "/?s=" + story.i + "&p=1";
+							storyname.href = "?s=" + story.i + "&p=1"; // riking: relative queries
 						});
 					}
 				});
@@ -2205,19 +2205,19 @@
 									if(unsaved[i] <= t.form._i && pages[unsaved[i]]._new) {
 										pages[unsaved[i]]._new = false;
 										pages[unsaved[i]].save.disabled = true;
-										pages[unsaved[i]].querySelector("a").href = "/?s=" + story.i + "&p=" + (unsaved[i]+1);
+										pages[unsaved[i]].querySelector("a").href = "?s=" + story.i + "&p=" + (unsaved[i]+1); // riking: relative queries
 										unsaved.splice(i, 1);
 									}
 								}
 							} else {
 								t.form.save.disabled = true;
-								t.form.querySelector("a").href = "/?s=" + story.i + "&p=" + (t.form._i+1);
+								t.form.querySelector("a").href = "?s=" + story.i + "&p=" + (t.form._i+1); // riking: relative queries
 								unsaved.splice(unsaved.indexOf(t.form._i), 1);
 							}
 							if(!unsaved.length) {
 								saveall.disabled = true;
 							}
-							storyname.href = "/?s=" + story.i + "&p=1";
+							storyname.href = "?s=" + story.i + "&p=1"; // riking: relative queries
 						});
 					}
 				};
@@ -2369,7 +2369,7 @@
 					} else if(story.e.indexOf(MSPFA.me.i) != -1 || MSPFA.me.p) {
 						var storyname = document.querySelector("#storyname");
 						if(story.p.length) {
-							storyname.href = "/?s=" + story.i + "&p=1";
+							storyname.href = "?s=" + story.i + "&p=1"; // riking: relative queries
 						}
 						storyname.innerText = story.n;
 						defaultcmd.value = story.m || "Next.";
@@ -2437,7 +2437,7 @@
 							if(page._i == story.p.length-1) {
 								page.moveup.disabled = true;
 							}
-							page.querySelector("a").href = "/?s=" + story.i + "&p=" + (page._i+1);
+							page.querySelector("a").href = "?s=" + story.i + "&p=" + (page._i+1); // riking: relative queries
 							page.cmd.value = story.p[i].c;
 							page.body.value = story.p[i].b;
 							page.next.value = story.p[i].n.join(",");
@@ -3418,7 +3418,7 @@
 		var getStoryTile = function(story, status) {
 			var s = document.createElement("a");
 			s.classList.add("story");
-			s.href = "/?s=" + story.i + "&p=1";
+			s.href = "?s=" + story.i + "&p=1"; // riking: relative queries
 			var icon = new Image();
 			icon.width = icon.height = 150;
 			icon.src = story.o || (randomWat() + "?cb=" + story.i); // riking: move random images to clientside
@@ -4290,7 +4290,7 @@
 								ctd2.appendChild(document.createTextNode(" "));
 								var page = document.createElement("a");
 								page.classList.add("page");
-								page.href = "/?s=" + MSPFA.story.i + "&p=" + c.c[i].p;
+								page.href = "?s=" + MSPFA.story.i + "&p=" + c.c[i].p; // riking: relative queries
 								page.addEventListener("click", linkSlide);
 								page.appendChild(document.createTextNode("(on page " + c.c[i].p + ")"));
 								ctd2.appendChild(page);
@@ -4551,7 +4551,7 @@
 					});
 					for(var i = 0; i < s.length; i++) {
 						var imgl = document.createElement("a");
-						imgl.href = "/?s=" + s[i].i + "&p=1";
+						imgl.href = "?s=" + s[i].i + "&p=1"; // riking: relative queries
 						var img = new Image();
 						img.classList.add("cellicon");
 						img.src = s[i].o || (randomWat() + "?cb=" + s[i].i); // riking: move random images to clientside
@@ -4760,7 +4760,7 @@
 			if(!story.l && story.p.length) {
 				var storyname = document.querySelector("#storyname");
 				storyname.innerText = story.n;
-				storyname.href = "/?s=" + story.i + "&p=1";
+				storyname.href = "?s=" + story.i + "&p=1"; // riking: relative queries
 				MSPFA.request(0, {
 					do: "readers",
 					s: story.i,
@@ -4967,7 +4967,7 @@
 							var msg = document.createElement("span");
 							msg.appendChild(document.createTextNode("Are you sure you want to vote for "));
 							var storyn = document.createElement("a");
-							storyn.href = "/?s=" + story.i + "&p=1";
+							storyn.href = "?s=" + story.i + "&p=1"; // riking: relative queries
 							storyn.innerText = story.n;
 							msg.appendChild(storyn);
 							msg.appendChild(document.createTextNode("?"));
