@@ -93,6 +93,8 @@
 	var requests = 0;
 	var loading = document.querySelector("#loading");
 	var box = document.querySelector("#dialog");
+	// riking: use a DOMParser document to delay image loading (thanks @SirStendec)
+	var tempDocument = (new DOMParser()).parseFromString("", "text/html");
 	window.MSPFA = {
 		import: function(src, loadCallback) {
 			var importScript = document.createElement("script");
@@ -282,16 +284,13 @@
 				while(prevCode != code[i]) {
 					prevCode = code[i];
 					for(var j = 0; j < BBC.length; j++) {
-						if (opts.noImages && BBC[j][2] === 2) {
-							code[i] = code[i].replace(BBC[j][0], "");
-						} else {
-							code[i] = code[i].replace(BBC[j][0], BBC[j][1]);
-						}
+						code[i] = code[i].replace(BBC[j][0], BBC[j][1]);
 					}
 				}
 			}
 			code = code.join("");
-			var e = document.createElement("span");
+			// riking: use a DOMParser document to delay image loading (thanks @SirStendec)
+			var e = tempDocument.createElement("span");
 			e.innerHTML = code;
 			var es = e.querySelectorAll("*");
 			for(var i = es.length-1; i >= 0; i--) {
@@ -1263,7 +1262,7 @@
 		var td1 = document.createElement("td");
 		td1.style.verticalAlign = "top";
 		var imga = document.createElement("a");
-		imga.href = "/?s=" + story.i + "&p=1";
+		imga.href = "?s=" + story.i + "&p=1";
 		var img = new Image();
 		img.classList.add("cellicon");
 		img.src = story.o || (randomWat() + "?cb=" + story.i); // riking: move random images to clientside
@@ -4724,8 +4723,14 @@
 					cmdlink.appendChild(document.createTextNode("\""));
 					phead.appendChild(cmdlink);
 					pages.appendChild(phead);
-					// riking: Remove images early.
-					pages.appendChild(MSPFA.parseBBCode(story.p[i].b, false, {archiveLinks: true, noImages: true}));
+					// [BEGIN] riking: Remove images *before* inserting into the document.
+					var pageBody = MSPFA.parseBBCode(story.p[i].b, false);
+					var srem = pageBody.querySelectorAll("img, style, iframe, video, audio, object, embed");
+					for(var j = srem.length-1; j >= 0; j--) {
+						srem[j].parentNode.removeChild(srem[j]);
+					}
+					pages.appendChild(pageBody);
+					// [END]
 					pages.appendChild(document.createElement("br"));
 					pages.appendChild(document.createElement("br"));
 				}
