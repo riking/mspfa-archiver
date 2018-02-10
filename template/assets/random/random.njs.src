@@ -1,0 +1,10 @@
+<?php
+    $exts = array("png"=>"image/png", "gif"=>"image/gif", "jpg"=>"image/jpeg", "jpeg"=>"image/jpeg");
+    $fileList = array();
+    $handle = opendir("./");
+    while($file = readdir($handle)) if(isset($exts[strtolower(pathinfo($file)["extension"])])) $fileList[] = $file;
+    closedir($handle);
+    $img = "./" . $fileList[mt_rand(0, count($fileList)-1)];
+    header("Content-type: " . $exts[pathinfo($img)["extension"]]);
+    readfile($img);
+?>
