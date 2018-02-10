@@ -25,10 +25,13 @@
 		}
 	};
 	// move random images to clientside
-	document.querySelectorAll('footer .mspfalogo').forEach(function(el) {
+	(function() {
 		var choice = Math.floor(Math.random() * 80);
-		el.style.backgroundImage = "url(\"" + GLOBAL_ASSET_BASE + "/assets/random/random.njs." + choice + "\")";
-	});
+		// BUG(1): This must be a style element, not inline styles, for specificity to work properly
+		var styleEl = document.createElement('style');
+		styleEl.innerHTML = "footer .mspfalogo {\nbackground-image: url(\"" + GLOBAL_ASSET_BASE + "/assets/random/random.njs." + choice + "\"); }";
+		document.appendChild(styleEl);
+	})();
 	function randomWat() {
 		var choice = Math.floor(Math.random() * 4);
 		return GLOBAL_ASSET_BASE + "/assets/wat/wat.njs." + choice;
