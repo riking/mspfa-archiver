@@ -51,31 +51,7 @@
 			<div id="nopepsi" class="alert" style="display: none;">x</div>
 			<div id="warning" class="alert">MSPFA is currently under read-only mode due to extreme maintenance. It is highly recommended that you only use the site to read adventures, and nothing more. If you do try to edit or add any data on the site, it may appear to have worked, but your edits will only be temporary. Don't do that.</div>
 		</header>
-
-<div id="container">
-    <div id="slide">
-        <div id="command"></div>
-        <div id="content"></div>
-        <div id="foot">
-            <div id="links"></div>
-            <br>
-            <br>
-            <span id="prevlinks" style="display: none;">
-                <span class="footlinks">
-                    <a id="startover">Start Over</a><span> | <a id="goback">Go Back</a></span>
-                </span>
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-            </span>
-            <span id="gamelinks" style="display: none;">
-                <span class="footlinks">
-                    <a id="savegame" href="javascript:void(0);">Save Game</a> | <a id="loadgame" href="javascript:void(0);">Load Game</a> | <a id="deletegame" href="javascript:void(0);">Delete Game Data</a>
-                </span>
-            </span><br>
-            <br>
-        </div>
-    </div>
-    <div id="info"></div>
-</div>
+{{template .Container}}
         <footer>
             <div class="umcontainer">
                 <div class="mspfalogo" data-choices={{.FooterImages}}></div>
