@@ -1,10 +1,9 @@
 (function() {
 	// [BEGIN] riking: Globals
-	var GLOBAL_ASSET_BASEURL = "https://mspfa.com"; // TODO: Mirror on archive.org
+	// Change 404 handling
 	var adv404 = function() {
-		MSPFA.dialog("Error", document.createTextNode("Something's missing! "), ["Go Back"], function() {
-			history.back();
-		});
+		MSPFA.dialog("Error", document.createTextNode("Something's missing! Perhaps the story was not archived properly?"), ["Well that sucks"]);
+		console.error("404 error");
 	};
 	// Change resource URLs to archive links
 	var toArchiveURL = function(type, up) {
@@ -56,15 +55,15 @@
 		[/\[background=("?)([^";]+?)\1\]((?:(?!\[background(?:=[^;]*?)\]).)*?)\[\/background\]/gi, "<span style=\"background-color: $2;\">$3</span>"],
 		[/\[font=("?)([^";]*?)\1\]((?:(?!\[size(?:=[^;]*?)\]).)*?)\[\/font\]/gi, "<span style=\"font-family: $2;\">$3</span>"],
 		[/\[(center|left|right|justify)\]((?:(?!\[\1\]).)*?)\[\/\1\]/gi, "<div style=\"text-align: $1;\">$2</div>"],
-		[/\[url\]([^"]*?)\[\/url\]/gi, "<a href=\"$1\">$1</a>"],
-		[/\[url=("?)([^"]*?)\1\]((?:(?!\[url(?:=.*?)\]).)*?)\[\/url\]/gi, "<a href=\"$2\">$3</a>"],
+		[/\[url\]([^"]*?)\[\/url\]/gi, "<a href=\"$1\">$1</a>", 1],
+		[/\[url=("?)([^"]*?)\1\]((?:(?!\[url(?:=.*?)\]).)*?)\[\/url\]/gi, "<a href=\"$2\">$3</a>", 1],
 		[/\[alt=("?)([^"]*?)\1\]((?:(?!\[alt(?:=.*?)\]).)*?)\[\/alt\]/gi, "<span title=\"$2\">$3</span>"],
-		[/\[img\]([^"]*?)\[\/img\]/gi, "<img src=\"$1\">"],
-		[/\[img=(\d*?)x(\d*?)\]([^"]*?)\[\/img\]/gi, "<img src=\"$3\" width=\"$1\" height=\"$2\">"],
+		[/\[img\]([^"]*?)\[\/img\]/gi, "<img src=\"$1\">", 2],
+		[/\[img=(\d*?)x(\d*?)\]([^"]*?)\[\/img\]/gi, "<img src=\"$3\" width=\"$1\" height=\"$2\">", 2],
 		[/\[spoiler\]((?:(?!\[spoiler(?: .*?)?\]).)*?)\[\/spoiler\]/gi, "<div class=\"spoiler closed\"><div style=\"text-align: center;\"><input type=\"button\" value=\"Show\" data-close=\"Hide\" data-open=\"Show\"></div><div>$1</div></div>"],
 		[/\[spoiler open=("?)([^"]*?)\1 close=("?)([^"]*?)\3\]((?:(?!\[spoiler(?: .*?)?\]).)*?)\[\/spoiler\]/gi, "<div class=\"spoiler closed\"><div style=\"text-align: center;\"><input type=\"button\" value=\"$2\" data-open=\"$2\" data-close=\"$4\"></div><div>$5</div></div>"],
 		[/\[spoiler close=("?)([^"]*?)\1 open=("?)([^"]*?)\3\]((?:(?!\[spoiler(?: .*?)?\]).)*?)\[\/spoiler\]/gi, "<div class=\"spoiler closed\"><div style=\"text-align: center;\"><input type=\"button\" value=\"$4\" data-open=\"$4\" data-close=\"$2\"></div><div>$5</div></div>"],
-		[/\[flash=(\d*?)x(\d*?)\](.*?)\[\/flash\]/gi, "<object type=\"application/x-shockwave-flash\" data=\"$3\" width=\"$1\" height=\"$2\"></object>"],
+		[/\[flash=(\d*?)x(\d*?)\](.*?)\[\/flash\]/gi, "<object type=\"application/x-shockwave-flash\" data=\"$3\" width=\"$1\" height=\"$2\"></object>", 2],
 		[/\[user\](.+?)\[\/user\]/gi, "<a class=\"usertag\" href=\"/user/?u=$1\" data-userid=\"$1\">@...</a>"]
 	];
 	var toggleSpoiler = function() {
@@ -268,7 +267,8 @@
 			t: 0
 		},
 		slide: [],
-		parseBBCode: function(code, noHTML) {
+		parseBBCode: function(code, noHTML, opts) {
+			opts = opts || {};
 			if(noHTML) {
 				code = [code.replace(/</g, "&lt;").replace(/>/g, "&gt;")];
 			} else {
@@ -282,7 +282,11 @@
 				while(prevCode != code[i]) {
 					prevCode = code[i];
 					for(var j = 0; j < BBC.length; j++) {
-						code[i] = code[i].replace(BBC[j][0], BBC[j][1]);
+						if (opts.noImages && BBC[j][2] === 2) {
+							code[i] = code[i].replace(BBC[j][0], "");
+						} else {
+							code[i] = code[i].replace(BBC[j][0], BBC[j][1]);
+						}
 					}
 				}
 			}
@@ -521,9 +525,9 @@
 		return (["Inactive", "Ongoing", "Complete"])[id-1] || "Useless";
 	};
 	var pageIcon = new Image();
-	pageIcon.src = "./assets/pages.png"; // riking: global assets
+	pageIcon.src = "./assets/pages.png"; // riking: relative assets
 	var heartIcon = new Image();
-	heartIcon.src = "./assets/heart.png"; // riking: global assets
+	heartIcon.src = "./assets/heart.png"; // riking: relative assets
 	pageIcon.classList.add("smol");
 	heartIcon.classList.add("smol");
 	var edit = document.createElement("input");
@@ -3782,7 +3786,7 @@
 					}
 					slidefdone = true;
 				} else {
-					adv404(); // riking: 404 handler
+					adv404(); // riking: replace 404 handler
 				}
 			} catch(err) {
 				if(location.pathname == "/preview/") {
@@ -3806,7 +3810,7 @@
 		}, function(v) {
 			MSPFA.story = v;
 			if(MSPFA.story.l || (!MSPFA.story.p.length && location.pathname != "/preview/")) {
-				adv404(); // riking: replace story 404 handler
+				adv404(); // riking: replace 404 handler
 				return;
 			}
 			document.title = MSPFA.story.n;
@@ -4422,7 +4426,7 @@
 			}
 		}, function(status) {
 			if(status == 404) {
-				adv404(); // riking: replace 404
+				adv404(); // riking: replace 404 handler
 			}
 		}, true);
 	} else if(location.pathname == "/login/") {
@@ -4690,11 +4694,11 @@
 				}
 				pages.style.display = "";
 			} else {
-				location.replace("/?s=20784&p=1");
+				adv404(); // riking: replace 404 handler
 			}
 		}, function(status) {
 			if(status == 404) {
-				location.replace("/?s=20784&p=1");
+				adv404(); // riking: replace 404 handler
 			}
 		}, true);
 	} else if ((/\/search.html$/).test(location.pathname)) { // riking: search.html
@@ -4706,7 +4710,7 @@
 			if(!story.l && story.p.length) {
 				var storyname = document.querySelector("#storyname");
 				storyname.innerText = story.n;
-				storyname.href = "/?s=" + story.i + "&p=1";
+				storyname.href = "?s=" + story.i + "&p=1";
 				for(var i = 0; i < story.p.length; i++) {
 					pages.appendChild(document.createElement("br"));
 					var phead = document.createElement("span");
@@ -4714,13 +4718,14 @@
 					phead.innerText = fetchDate(new Date(story.p[i].d));
 					phead.appendChild(document.createElement("br"));
 					var cmdlink = document.createElement("a");
-					cmdlink.href = "/?s=" + story.i + "&p=" + (i+1);
+					cmdlink.href = "?s=" + story.i + "&p=" + (i+1);
 					cmdlink.appendChild(document.createTextNode("\""));
 					cmdlink.appendChild(MSPFA.parseBBCode(story.p[i].c || story.m));
 					cmdlink.appendChild(document.createTextNode("\""));
 					phead.appendChild(cmdlink);
 					pages.appendChild(phead);
-					pages.appendChild(MSPFA.parseBBCode(story.p[i].b));
+					// riking: Remove images early.
+					pages.appendChild(MSPFA.parseBBCode(story.p[i].b, false, {archiveLinks: true, noImages: true}));
 					pages.appendChild(document.createElement("br"));
 					pages.appendChild(document.createElement("br"));
 				}
@@ -4734,11 +4739,11 @@
 				}
 				pages.style.display = "";
 			} else {
-				location.replace("/?s=20784&p=1");
+				adv404(); // riking: replace 404 handler
 			}
 		}, function(status) {
 			if(status == 404) {
-				location.replace("/?s=20784&p=1");
+				adv404(); // riking: replace 404 handler
 			}
 		}, true);
 	} else if(location.pathname == "/readers/") {
@@ -4763,11 +4768,11 @@
 					readers.parentNode.parentNode.parentNode.style.display = "";
 				});
 			} else {
-				location.replace("/?s=20784&p=1");
+				adv404(); // riking: replace 404 handler
 			}
 		}, function(status) {
 			if(status == 404) {
-				location.replace("/?s=20784&p=1");
+				adv404(); // riking: replace 404 handler
 			}
 		}, true);
 	} else if(location.pathname == "/achievements/") {
