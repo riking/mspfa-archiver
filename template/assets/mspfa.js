@@ -1,5 +1,6 @@
 (function() {
 	// [BEGIN] riking: Globals
+	const GLOBAL_ASSET_BASE = "https://archive.org/download/mspfa-archive-assets";
 	// Change 404 handling
 	var adv404 = function() {
 		MSPFA.dialog("Error", document.createTextNode("Something's missing! Perhaps the story was not archived properly?"), ["Well that sucks"]);
@@ -25,13 +26,12 @@
 	};
 	// move random images to clientside
 	document.querySelectorAll('footer .mspfalogo').forEach(function(el) {
-		var ary = el.dataset.choices.split(',');
-		var choice = ary[Math.floor(Math.random() * ary.length)];
-		el.style.backgroundImage = "url(\"./assets/random/random.njs." + choice + "\")";
+		var choice = Math.floor(Math.random() * 80);
+		el.style.backgroundImage = "url(\"" + GLOBAL_ASSET_BASE + "/assets/random/random.njs." + choice + "\")";
 	});
 	function randomWat() {
 		var choice = Math.floor(Math.random() * 4);
-		return "./assets/wat/wat.njs." + choice;
+		return GLOBAL_ASSET_BASE + "/assets/wat/wat.njs." + choice;
 	}
 	// [END]
 
@@ -524,9 +524,9 @@
 		return (["Inactive", "Ongoing", "Complete"])[id-1] || "Useless";
 	};
 	var pageIcon = new Image();
-	pageIcon.src = "./assets/pages.png"; // riking: relative assets
+	pageIcon.src = GLOBAL_ASSET_BASE + "/assets/pages.png"; // riking: relative assets
 	var heartIcon = new Image();
-	heartIcon.src = "./assets/heart.png"; // riking: relative assets
+	heartIcon.src = GLOBAL_ASSET_BASE + "/assets/heart.png"; // riking: relative assets
 	pageIcon.classList.add("smol");
 	heartIcon.classList.add("smol");
 	var edit = document.createElement("input");
@@ -1262,7 +1262,7 @@
 		var td1 = document.createElement("td");
 		td1.style.verticalAlign = "top";
 		var imga = document.createElement("a");
-		imga.href = "?s=" + story.i + "&p=1";
+		imga.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 		var img = new Image();
 		img.classList.add("cellicon");
 		img.src = story.o || (randomWat() + "?cb=" + story.i); // riking: move random images to clientside
@@ -1272,7 +1272,7 @@
 		var td2 = document.createElement("td");
 		var t = document.createElement("a");
 		t.classList.add("major");
-		t.href = "?s=" + story.i + "&p=1"; // riking: relative queries
+		t.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 		t.innerText = story.n;
 		td2.appendChild(t);
 		td2.appendChild(document.createTextNode(" "));
@@ -1350,14 +1350,14 @@
 				if(ns) {
 					notification.innerText = ns.toString();
 					notification.style.display = "";
-					iconLink.href = "/images/icon.png";
+					iconLink.href = GLOBAL_ASSET_BASE + "/assets/icon.png";
 					if(location.pathname == "/my/") {
 						document.querySelector("#messages").innerText = "Messages (" + ns + ")";
 					}
 				} else {
 					notification.innerText = "0";
 					notification.style.display = "none";
-					iconLink.href = "/images/ico.png";
+					iconLink.href = GLOBAL_ASSET_BASE + "/assets/ico.png";
 					if(location.pathname == "/my/") {
 						document.querySelector("#messages").innerText = "Messages";
 					}
@@ -1590,7 +1590,7 @@
 							var t = document.createElement("a");
 							t.classList.add("major");
 							if(s[i].p) {
-								t.href = "?s=" + s[i].i + "&p=1"; // riking: relative queries
+								t.href = "view.html?s=" + s[i].i + "&p=1"; // riking: relative queries
 							}
 							t.innerText = s[i].n;
 							td2.appendChild(t);
@@ -1842,7 +1842,7 @@
 							}
 							if(!story.l) {
 								if(story.p.length) {
-									storyname.href = "?s=" + story.i + "&p=1"; // riking: relative queries
+									storyname.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 								}
 								deletestory.addEventListener("click", function() {
 									var msg = document.createElement("span");
@@ -2055,11 +2055,11 @@
 							for(var i = 0; i < unsaved.length; i++) {
 								pages[unsaved[i]]._new = false;
 								pages[unsaved[i]].save.disabled = true;
-								pages[unsaved[i]].querySelector("a").href = "?s=" + story.i + "&p=" + (unsaved[i]+1); // riking: relative queries
+								pages[unsaved[i]].querySelector("a").href = "view.html?s=" + story.i + "&p=" + (unsaved[i]+1); // riking: relative queries
 							}
 							unsaved = [];
 							saveall.disabled = true;
-							storyname.href = "?s=" + story.i + "&p=1"; // riking: relative queries
+							storyname.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 						});
 					}
 				});
@@ -2205,19 +2205,19 @@
 									if(unsaved[i] <= t.form._i && pages[unsaved[i]]._new) {
 										pages[unsaved[i]]._new = false;
 										pages[unsaved[i]].save.disabled = true;
-										pages[unsaved[i]].querySelector("a").href = "?s=" + story.i + "&p=" + (unsaved[i]+1); // riking: relative queries
+										pages[unsaved[i]].querySelector("a").href = "view.html?s=" + story.i + "&p=" + (unsaved[i]+1); // riking: relative queries
 										unsaved.splice(i, 1);
 									}
 								}
 							} else {
 								t.form.save.disabled = true;
-								t.form.querySelector("a").href = "?s=" + story.i + "&p=" + (t.form._i+1); // riking: relative queries
+								t.form.querySelector("a").href = "view.html?s=" + story.i + "&p=" + (t.form._i+1); // riking: relative queries
 								unsaved.splice(unsaved.indexOf(t.form._i), 1);
 							}
 							if(!unsaved.length) {
 								saveall.disabled = true;
 							}
-							storyname.href = "?s=" + story.i + "&p=1"; // riking: relative queries
+							storyname.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 						});
 					}
 				};
@@ -2369,7 +2369,7 @@
 					} else if(story.e.indexOf(MSPFA.me.i) != -1 || MSPFA.me.p) {
 						var storyname = document.querySelector("#storyname");
 						if(story.p.length) {
-							storyname.href = "?s=" + story.i + "&p=1"; // riking: relative queries
+							storyname.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 						}
 						storyname.innerText = story.n;
 						defaultcmd.value = story.m || "Next.";
@@ -2437,7 +2437,7 @@
 							if(page._i == story.p.length-1) {
 								page.moveup.disabled = true;
 							}
-							page.querySelector("a").href = "?s=" + story.i + "&p=" + (page._i+1); // riking: relative queries
+							page.querySelector("a").href = "view.html?s=" + story.i + "&p=" + (page._i+1); // riking: relative queries
 							page.cmd.value = story.p[i].c;
 							page.body.value = story.p[i].b;
 							page.next.value = story.p[i].n.join(",");
@@ -3418,7 +3418,7 @@
 		var getStoryTile = function(story, status) {
 			var s = document.createElement("a");
 			s.classList.add("story");
-			s.href = "?s=" + story.i + "&p=1"; // riking: relative queries
+			s.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 			var icon = new Image();
 			icon.width = icon.height = 150;
 			icon.src = story.o || (randomWat() + "?cb=" + story.i); // riking: move random images to clientside
@@ -3662,7 +3662,7 @@
 				if(location.pathname == "/preview/") {
 					page = JSON.parse(params.d);
 				} else {
-					historyState = "?s=" + MSPFA.story.i + "&p=" + p; // riking: relative queries
+					historyState = "view.html?s=" + MSPFA.story.i + "&p=" + p; // riking: relative queries
 					if(location.href.slice(-historyState.length) != historyState) {
 						history.pushState(null, "", historyState);
 					}
@@ -3690,10 +3690,10 @@
 					}
 					if(backid) {
 						goback.parentNode.style.display = "";
-						goback.href = "?s=" + MSPFA.story.i + "&p=" + backid; // riking: relative queries
+						goback.href = "view.html?s=" + MSPFA.story.i + "&p=" + backid; // riking: relative queries
 					} else {
 						goback.parentNode.style.display = "none";
-						goback.href = "?s=" + MSPFA.story.i + "&p=" + p; // riking: relative queries
+						goback.href = "view.html?s=" + MSPFA.story.i + "&p=" + p; // riking: relative queries
 					}
 					if(p > 1 && location.pathname != "/preview/") {
 						prevlinks.style.display = "";
@@ -3755,7 +3755,7 @@
 							if(MSPFA.story.p[page.n[i]-1]) {
 								var line = document.createElement("div");
 								var link = document.createElement("a");
-								link.href = "?s=" + MSPFA.story.i + "&p=" + page.n[i]; // riking: relative queries
+								link.href = "view.html?s=" + MSPFA.story.i + "&p=" + page.n[i]; // riking: relative queries
 								link.appendChild(MSPFA.parseBBCode(MSPFA.story.p[page.n[i]-1].c || MSPFA.story.m));
 								link.addEventListener("click", linkSlide);
 								line.appendChild(link);
@@ -3860,7 +3860,7 @@
 				}
 			};
 			registerPageRanges(MSPFA.story.y);
-			startover.href = "?s=" + MSPFA.story.i + "&p=1"; // riking: relative queries
+			startover.href = "view.html?s=" + MSPFA.story.i + "&p=1"; // riking: relative queries
 			startover.addEventListener("click", linkSlide);
 			window.addEventListener("keydown", function(evt) {
 				if(!page || page.k || document.querySelector("textarea:focus, input[type=\"text\"]:focus, input[type=\"number\"]:focus, input[type=\"password\"]:focus, input[type=\"email\"]:focus")) {
@@ -3871,7 +3871,7 @@
 				switch(evt.keyCode) {
 					case MSPFA.me.s.k.p:
 						if(location.pathname != "/preview/") {
-							var clink = "?s=" + MSPFA.story.i + "&p=" + p; // riking: relative queries
+							var clink = "view.html?s=" + MSPFA.story.i + "&p=" + p; // riking: relative queries
 							if(goback.href.indexOf(clink) != goback.href.length-clink.length) {
 								goback.click();
 							}
@@ -4027,7 +4027,7 @@
 					var thiscmd = document.createElement("span");
 					thiscmd.appendChild(document.createTextNode(fetchDate(new Date(MSPFA.story.p[i].d)) + " - "));
 					var cmdlink = document.createElement("a");
-					cmdlink.href = "?s=" + MSPFA.story.i + "&p=" + (i+1); // riking: relative queries
+					cmdlink.href = "view.html?s=" + MSPFA.story.i + "&p=" + (i+1); // riking: relative queries
 					cmdlink.appendChild(document.createTextNode("\""));
 					cmdlink.appendChild(MSPFA.parseBBCode(MSPFA.story.p[i].c || MSPFA.story.m));
 					cmdlink.appendChild(document.createTextNode("\""));
@@ -4290,7 +4290,7 @@
 								ctd2.appendChild(document.createTextNode(" "));
 								var page = document.createElement("a");
 								page.classList.add("page");
-								page.href = "?s=" + MSPFA.story.i + "&p=" + c.c[i].p; // riking: relative queries
+								page.href = "view.html?s=" + MSPFA.story.i + "&p=" + c.c[i].p; // riking: relative queries
 								page.addEventListener("click", linkSlide);
 								page.appendChild(document.createTextNode("(on page " + c.c[i].p + ")"));
 								ctd2.appendChild(page);
@@ -4551,7 +4551,7 @@
 					});
 					for(var i = 0; i < s.length; i++) {
 						var imgl = document.createElement("a");
-						imgl.href = "?s=" + s[i].i + "&p=1"; // riking: relative queries
+						imgl.href = "view.html?s=" + s[i].i + "&p=1"; // riking: relative queries
 						var img = new Image();
 						img.classList.add("cellicon");
 						img.src = s[i].o || (randomWat() + "?cb=" + s[i].i); // riking: move random images to clientside
@@ -4709,7 +4709,7 @@
 			if(!story.l && story.p.length) {
 				var storyname = document.querySelector("#storyname");
 				storyname.innerText = story.n;
-				storyname.href = "?s=" + story.i + "&p=1";
+				storyname.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 				for(var i = 0; i < story.p.length; i++) {
 					pages.appendChild(document.createElement("br"));
 					var phead = document.createElement("span");
@@ -4717,7 +4717,7 @@
 					phead.innerText = fetchDate(new Date(story.p[i].d));
 					phead.appendChild(document.createElement("br"));
 					var cmdlink = document.createElement("a");
-					cmdlink.href = "?s=" + story.i + "&p=" + (i+1);
+					cmdlink.href = "view.html?s=" + story.i + "&p=" + (i+1); // riking: relative queries
 					cmdlink.appendChild(document.createTextNode("\""));
 					cmdlink.appendChild(MSPFA.parseBBCode(story.p[i].c || story.m));
 					cmdlink.appendChild(document.createTextNode("\""));
@@ -4760,7 +4760,7 @@
 			if(!story.l && story.p.length) {
 				var storyname = document.querySelector("#storyname");
 				storyname.innerText = story.n;
-				storyname.href = "?s=" + story.i + "&p=1"; // riking: relative queries
+				storyname.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 				MSPFA.request(0, {
 					do: "readers",
 					s: story.i,
@@ -4967,7 +4967,7 @@
 							var msg = document.createElement("span");
 							msg.appendChild(document.createTextNode("Are you sure you want to vote for "));
 							var storyn = document.createElement("a");
-							storyn.href = "?s=" + story.i + "&p=1"; // riking: relative queries
+							storyn.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 							storyn.innerText = story.n;
 							msg.appendChild(storyn);
 							msg.appendChild(document.createTextNode("?"));
