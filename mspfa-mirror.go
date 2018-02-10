@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -30,30 +31,55 @@ type Page struct {
 	Next    []int   `json:"n"`
 }
 
+type UserID string
+
+// need to cover:
+// do:story
+// do:user
+// need:
+
 type StoryJSON struct {
-	ID          int64         `json:"i"`
-	D           float64       `json:"d"`
-	Updated     float64       `json:"u"`
-	C           string        `json:"c"`
-	E           []string      `json:"e"`
-	Name        string        `json:"n"`
-	Description template.HTML `json:"r"` // contains URLs
-	H           float64       `json:"h"`
-	Tags        []string      `json:"t"`
-	Author      string        `json:"a"`
-	AuthorLink  string        `json:"w"` // contains URLs
-	Icon        string        `json:"o"` // contains URLs
-	B           float64       `json:"b"`
-	CSS         template.CSS  `json:"y"` // contains URLs
-	J           string        `json:"j"`
-	V           string        `json:"v"`
-	F           []string      `json:"f"`
-	M           string        `json:"m"`
-	Pages       []Page        `json:"p"` // contains URLs
-	G           []string      `json:"g"`
-	K           float64       `json:"k"`
-	Q           string        `json:"q"` // contains URLs
-	X           string        `json:"x"`
+	ID        int64         `json:"i"`
+	D         float64       `json:"d"`
+	Updated   float64       `json:"u"`
+	C         string        `json:"c"`
+	Mirroring []UserID      `json:"e"`
+	Name      string        `json:"n"`
+	Desc      template.HTML `json:"r"` // contains URLs
+	H         float64       `json:"h"`
+	Tags      []string      `json:"t"`
+	Author    string        `json:"a"`
+	AuthLink  string        `json:"w"` // contains URLs
+	Icon      string        `json:"o"` // contains URLs
+	B         float64       `json:"b"`
+	CSS       template.CSS  `json:"y"` // contains URLs
+	J         string        `json:"j"`
+	V         string        `json:"v"`
+	F         []string      `json:"f"`
+	M         string        `json:"m"`
+	Pages     []Page        `json:"p"` // contains URLs
+	G         []string      `json:"g"`
+	K         float64       `json:"k"`
+	Q         string        `json:"q"` // contains URLs
+	X         string        `json:"x"`
+
+	// Did we download an icon.png
+	GotIcon bool `json:"-"`
+}
+
+type RscType int
+
+const (
+	tLink RscType = iota
+	tSrc
+	tVideo
+)
+
+// Rsc is an adventure resource.
+type Rsc struct {
+	// URL
+	U    string
+	Type RscType
 }
 
 type advDir string
@@ -104,6 +130,8 @@ func downloadStoryJSON(storyID string, dir advDir) error {
 }
 
 func downloadResources(dir advDir) error {
+	os.MkdirAll(dir.File("files"), 0755)
+
 	// ../../wpull --warc-file ../resources --warc-append --warc-cdx --wait 0.1 --page-requisites --tries 3 --retry-connrefused --retry-dns-error --database ../wpull.db --output-file ../wpull-$(date +%s).log --user-agent "MSPFA Archiver/0.8" --span-hosts-allow page-requisites -l 3
 	cmd := exec.Command("./wpull",
 		"--database", dir.File("wpull.db"),
@@ -120,7 +148,7 @@ func downloadResources(dir advDir) error {
 		"--tries", "3",
 		"--retry-connrefused", "--retry-dns-error",
 		"-P", dir.File("files"),
-		"--exclude-domains", "discordapp.com,youtube.com,mspfa.com",
+		"--exclude-domains", "discordapp.com,youtube.com,assets.tumblr.com,mspfa.com",
 		// "--youtube-dl",
 	)
 	// cmd.Dir = string(dir)
@@ -176,7 +204,13 @@ func downloadVideos(dir advDir) error {
 	return nil
 }
 
-func scanHTML(desc string, out chan<- string) error {
+func copyAssets(dir advDir) error {
+
+}
+
+var seenElementTypes = make(map[string]bool)
+
+func scanHTML(desc string, out chan<- Rsc) error {
 	tz := html.NewTokenizer(strings.NewReader(desc))
 	for {
 		tt := tz.Next()
@@ -191,9 +225,17 @@ func scanHTML(desc string, out chan<- string) error {
 
 			for _, at := range t.Attr {
 				if at.Key == "href" {
-					out <- at.Val
+					out <- Rsc{U: at.Val, Type: tLink}
+					if !seenElementTypes[t.Data] {
+						seenElementTypes[t.Data] = true
+						fmt.Println("Found href on", t.Data)
+					}
 				} else if at.Key == "src" {
-					out <- at.Val
+					out <- Rsc{U: at.Val, Type: tSrc}
+					if !seenElementTypes[t.Data] {
+						seenElementTypes[t.Data] = true
+						fmt.Println("Found src on", t.Data)
+					}
 				}
 			}
 		}
@@ -202,7 +244,7 @@ func scanHTML(desc string, out chan<- string) error {
 
 var cssTrimLeft = regexp.MustCompile(`^url\((['"]?)`)
 
-func scanURL(maybeURL string, out chan<- string) {
+func scanURL(maybeURL string, out chan<- Rsc) {
 	if maybeURL == "" {
 		return
 	}
@@ -212,11 +254,11 @@ func scanURL(maybeURL string, out chan<- string) {
 		if u.Host == "" {
 			return
 		}
-		out <- maybeURL
+		out <- Rsc{U: maybeURL}
 	}
 }
 
-func scanCSS(src template.CSS, out chan<- string) {
+func scanCSS(src template.CSS, out chan<- Rsc) {
 	sc := cssparse.New(string(src))
 	for {
 		tok := sc.Next()
@@ -254,18 +296,20 @@ var bbRegexGroup = map[string]int{
 	"flash3": 3,
 }
 
-func scanBBCode(p *Page, out chan<- string) {
+func scanBBCode(p *Page, out chan<- Rsc) {
 	matcher := new(pcre.Matcher)
 
 	for k, rgx := range bbRegex {
 		for matcher.ResetString(rgx, p.Body, 0); matcher.Matches(); matcher.Next(0) {
 			switch k {
-			case "url1", "img1":
-				out <- matcher.GroupString(1)
+			case "url1":
+				out <- Rsc{U: matcher.GroupString(1), Type: tLink}
 			case "url2":
-				out <- matcher.GroupString(2)
+				out <- Rsc{U: matcher.GroupString(2), Type: tLink}
+			case "img1":
+				out <- Rsc{U: matcher.GroupString(1), Type: tSrc}
 			case "img3", "flash3":
-				out <- matcher.GroupString(3)
+				out <- Rsc{U: matcher.GroupString(3), Type: tSrc}
 			}
 		}
 	}
@@ -273,15 +317,15 @@ func scanBBCode(p *Page, out chan<- string) {
 	scanHTML(p.Body, out)
 }
 
-func scanURLs(story *StoryJSON, out chan<- string) error {
+func scanURLs(story *StoryJSON, out chan<- Rsc) error {
 	for idx := range story.Pages {
 		scanBBCode(&story.Pages[idx], out)
 	}
-	scanHTML(string(story.Description), out)
+	scanHTML(string(story.Desc), out)
 	scanURL(story.Icon, out)
 	scanCSS(story.CSS, out)
 	scanURL(story.Q, out)
-	scanURL(story.AuthorLink, out)
+	scanURL(story.AuthLink, out)
 
 	return nil
 }
@@ -367,7 +411,7 @@ func archiveStory(storyID string, dir advDir) error {
 		return err
 	}
 
-	urlChan := make(chan string)
+	urlChan := make(chan Rsc)
 	var scanErr error
 	go func() {
 		scanErr = scanURLs(story, urlChan)
@@ -377,12 +421,20 @@ func archiveStory(storyID string, dir advDir) error {
 	urlList := make(map[string]struct{})
 	videoList := make(map[string]struct{})
 	for resource := range urlChan {
-		for _, videoStr := range videoURLs {
-			if strings.Contains(resource, videoStr) {
-				videoList[resource] = struct{}{}
+		isVideo := (resource.Type == tVideo)
+		if resource.Type == tLink {
+			for _, videoStr := range videoURLs {
+				if strings.Contains(resource.U, videoStr) {
+					isVideo = true
+				}
 			}
 		}
-		urlList[resource] = struct{}{}
+
+		if isVideo {
+			videoList[resource.U] = struct{}{}
+		} else {
+			urlList[resource.U] = struct{}{}
+		}
 	}
 
 	writeURLsFile(urlList, videoList, dir)
@@ -391,7 +443,7 @@ func archiveStory(storyID string, dir advDir) error {
 }
 
 func main() {
-	outDir := flag.String("o", ".", "Output directory where the archive folders should be created.")
+	outDir := flag.String("o", "./target", "Output directory where the archive folders should be created.")
 	download := flag.Bool("dl", false, "Download files instead of just listing them")
 
 	flag.Parse()
@@ -433,4 +485,42 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
 		}
 	}
+}
+
+func toArchiveURL(up string) string {
+	u, err := url.Parse(up)
+	if err != nil {
+		return up
+	}
+	return fmt.Sprintf("./files/%s/%s%s", u.Host, u.RawPath, u.RawQuery)
+}
+
+func (sj *StoryJSON) PlainDesc() string {
+	var buf bytes.Buffer
+
+	// Grab all text from description
+	tz := html.NewTokenizer(strings.NewReader(string(sj.Desc)))
+	for {
+		tt := tz.Next()
+		switch tt {
+		case html.ErrorToken:
+			s := buf.String()
+			if strings.TrimSpace(s) == "" {
+				return "(no description)"
+			}
+			return s
+		case html.TextToken:
+			buf.WriteString(tz.Token().Data)
+		}
+	}
+}
+
+func (sj *StoryJSON) GetIcon() string {
+	if sj.Icon != "" {
+		return toArchiveURL(sj.Icon)
+	}
+	if sj.GotIcon {
+		return "./icon.png"
+	}
+	return "https://mspfa.com/images/wat.njs" // TODO - archive resources
 }

@@ -32,7 +32,7 @@ nav .heart {
     height: 16px;
     margin: 0 6px;
     padding: 0 !important;
-    background-image: url("/images/candyheart.png");
+    background-image: url("candyheart.png");
     background-repeat: no-repeat;
     background-position: center;
 }
@@ -106,7 +106,7 @@ nav .heart {
     opacity: 0;
     background-repeat: no-repeat;
     background-position: right 8px bottom 8px;
-    background-image: url("/images/loading.gif");
+    background-image: url("loading.gif");
     pointer-events: none;
     transition: opacity 0.25s linear;
 }
@@ -148,10 +148,10 @@ nav .heart {
     background-color: #eeeeee;
 }
 header .mspfalogo {
-    background-image: url("/images/VorkedLarfleeze.gif");
+    background-image: url("VorkedLarfleeze.gif");
 }
 footer .mspfalogo {
-    background-image: url("/images/footer/random.njs");
+    /* background-image: url("/images/footer/random.njs"); */
 }
 footer {
     display: flex;
@@ -305,11 +305,11 @@ textarea {
     outline: none;
 }
 .arrow.right {
-    background-image: url("/images/arrowr.png");
+    background-image: url("arrowr.png");
     margin-left: -580px;
 }
 .arrow.left {
-    background-image: url("/images/arrowl.png");
+    background-image: url("arrowl.png");
     margin-left: 500px;
 }
 .arrow.lit {
@@ -342,7 +342,7 @@ textarea {
     height: 24px;
     padding: 0;
     background-clip: content-box;
-    background-image: url("/images/bbicons.png");
+    background-image: url("bbicons.png");
     background-color: #eeeeee;
     border: 1px solid #a2a2a2;
 }
@@ -423,22 +423,22 @@ textarea {
     background-position: center;
 }
 .edit {
-    background-image: url("/images/edit.png");
+    background-image: url("edit.png");
 }
 .fav.unlit {
-    background-image: url("/images/grayheart.png");
+    background-image: url("grayheart.png");
 }
 .fav.lit {
-    background-image: url("/images/heart.png");
+    background-image: url("heart.png");
 }
 .notify.unlit {
-    background-image: url("/images/graybell.png");
+    background-image: url("graybell.png");
 }
 .notify.lit {
-    background-image: url("/images/bell.png");
+    background-image: url("bell.png");
 }
 .poll {
-    background-image: url("/images/poll.png");
+    background-image: url("poll.png");
 }
 #info {
     margin-bottom: 8px;
@@ -491,7 +491,7 @@ textarea {
     text-decoration: underline;
 }
 .gear {
-    background-image: url("/images/gear.png");
+    background-image: url("gear.png");
     background-size: contain;
     background-position: center;
     float: right;
@@ -519,6 +519,8 @@ textarea {
     background-position: 2px;
     margin: 0 0 1px 2px;
 }
+/*
+riking: don't download vote images
 .rate input[type="button"].up {
     background-image: url("/images/grayupvote.png");
 }
@@ -531,3 +533,4 @@ textarea {
 .rate input[type="button"].down.lit {
     background-image: url("/images/downvote.png");
 }
+*/

@@ -24,6 +24,12 @@
 			return "https://web.archive.org/web/" + u.href;
 		}
 	};
+	// move random images to clientside
+	document.querySelectorAll('footer .mspfalogo').forEach(function(el) {
+		var ary = el.dataset.choices.split(',');
+		var choice = ary[Math.floor(Math.random() * ary.length)];
+		el.style.backgroundImage = "url(\"./assets/random/random.njs." + choice + "\")";
+	});
 	// [END]
 
 	console.log("This website was programmed almost entirely by Miroware.\nhttps://miroware.io/");
@@ -3576,7 +3582,7 @@
 		};
 		displayArrows();
 		window.addEventListener("resize", displayArrows);
-	} else if ((/\/read.html$/.test(location.pathname)) { // riking: change story view test
+	} else if ((/\/view.html$/).test(location.pathname)) { // riking: change story view test
 		// LANDMARK: Start story view
 		var p = parseInt(params.p) || 1;
 		MSPFA.story = {};
@@ -3895,7 +3901,12 @@
 				var icon = new Image();
 				icon.id = "storyicon";
 				icon.width = icon.height = 150;
-				icon.src = MSPFA.story.o || (GLOBAL_ASSET_BASEURL + "/images/wat/random.njs"); // riking: global asset url
+				// [BEGIN] riking: move random images to clientside
+				icon.src = MSPFA.story.o || (function() {
+					var r = Math.floor(Math.random() * 4);
+					return "./assets/wat/wat.njs." + r;
+				})();
+				// [END]
 				icon.style.marginRight = "6px";
 				td1.appendChild(icon);
 				tr1.appendChild(td1);
