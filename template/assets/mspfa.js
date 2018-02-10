@@ -3597,7 +3597,7 @@
 		};
 		displayArrows();
 		window.addEventListener("resize", displayArrows);
-	} else if ((/\/view.html$/).test(location.pathname)) { // riking: change story view test
+	} else if ((/\/view.html\/?$/).test(location.pathname)) { // riking: change story view test
 		// LANDMARK: Start story view
 		var p = parseInt(params.p) || 1;
 		MSPFA.story = {};
@@ -4044,7 +4044,7 @@
 				var viewAllPagesContainer = document.createElement("div");
 				viewAllPagesContainer.style.textAlign = "center";
 				var viewAllPages = document.createElement("a");
-				viewAllPages.href = "./log.html/?s=" + MSPFA.story.i; // riking: redirect log url
+				viewAllPages.href = "./log.html?s=" + MSPFA.story.i; // riking: redirect log url
 				viewAllPages.style.fontSize = "14px";
 				viewAllPages.innerText = "VIEW ALL PAGES";
 				viewAllPagesContainer.appendChild(viewAllPages);
@@ -4673,7 +4673,7 @@
 			tagselect.options[0].selected = true;
 		});
 		explore.style.opacity = "";
-	} else if ((/\/log.html$/).test(location.pathname)) { // riking: log.html
+	} else if ((/\/log.html\/?$/).test(location.pathname)) { // riking: log.html
 		var pages = document.querySelector("#pages");
 		MSPFA.request(0, {
 			do: "story",
@@ -4703,7 +4703,7 @@
 				adv404(); // riking: replace 404 handler
 			}
 		}, true);
-	} else if ((/\/search.html$/).test(location.pathname)) { // riking: search.html
+	} else if ((/\/search.html\/?$/).test(location.pathname)) { // riking: search.html
 		var pages = document.querySelector("#pages");
 		MSPFA.request(0, {
 			do: "story",
