@@ -19,7 +19,7 @@
 			return up;
 		}
 		if (type === "resource") {
-			return "./files/" + u.host + u.pathname + u.search;
+			return "./files/" + encodeURIComponent(u.host) + encodeURIComponent(u.pathname) + encodeURIComponent(u.search);
 		} else if (type === "web") {
 			return "https://web.archive.org/web/" + u.href;
 		}
