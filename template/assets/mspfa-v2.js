@@ -310,11 +310,13 @@
 					}
 					// [BEGIN] riking: Change resource URLs to archive links
 				} else if (es[i].tagName == "OBJECT") {
-					es[i].data = toArchiveURL(es[i].data);
+					es[i].data = toArchiveURL("resource", es[i].data);
 				} else if (es[i].tagName == "A") {
 					if (/youtube\.com\/watch/.test(es[i].href) || /youtu\.be/.test(es[i].href)) {
 						console.log("YouTube URL to convert:", es[i]);
 						// TODO - YouTube URLs
+					} else {
+						es[i].href = toArchiveURL("web", es[i].href);
 					}
 					// [END]
 				} else {
@@ -324,7 +326,7 @@
 						}
 						// [BEGIN] riking: Change resource URLs to archive links
 						if (es[i].attributes[j].name == "src") {
-							es[i].setAttribute(es[i].attributes[j].name, toArchiveURL(es[i].attributes[j].value));
+							es[i].setAttribute(es[i].attributes[j].name, toArchiveURL("resource", es[i].attributes[j].value));
 						}
 						// [END]
 					}

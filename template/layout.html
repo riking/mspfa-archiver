@@ -2,11 +2,6 @@
 <html>
 <head>
 	<meta charset="UTF-8">
-	<meta http-equiv="Content-Security-Policy" content="{{if .Conf.IsArchiveOrg}}
-		default-src archive.org *.archive.org https://fonts.googleapis.com;
-		script-src archive.org *.archive.org;
-		frame-src data: archive.org *.archive.org;{{end}}
-		upgrade-insecure-requests;">
 	
 	<title>{{.Name}}</title>
 	<meta name="description" content="{{.PlainDesc}}">
