@@ -41,7 +41,6 @@ type UserID string
 // need to cover:
 // do:story
 // do:user
-// need:
 
 type StoryJSON struct {
 	ID        int64         `json:"i"`
@@ -65,11 +64,41 @@ type StoryJSON struct {
 	Pages     []Page        `json:"p"` // contains URLs
 	G         []string      `json:"g"`
 	K         float64       `json:"k"`
-	Q         string        `json:"q"` // contains URLs
-	X         string        `json:"x"`
+	// thumbnail
+	Q string `json:"q"` // contains URLs
+	X string `json:"x"`
 
 	// used by template
-	footerImages string `json:"-"`
+	Conf *OutputConf `json:"-"`
+}
+
+type User struct {
+	ID   string      `json:"i"`
+	D    float64     `json:"d"`
+	Name string      `json:"n"`
+	V    float64     `json:"v"`
+	H    float64     `json:"h"`
+	W    string      `json:"w"`
+	R    string      `json:"r"`
+	Icon string      `json:"o"` // contains URLs
+	G    interface{} `json:"g"`
+	A    float64     `json:"a"`
+	S    struct {
+		K struct {
+			P float64 `json:"p"`
+			N float64 `json:"n"`
+			S float64 `json:"s"`
+		} `json:"k"`
+		S float64 `json:"s"`
+		P float64 `json:"p"`
+	} `json:"s"`
+	U float64 `json:"u"`
+}
+
+type OutputConf struct {
+	IsArchiveOrg bool
+	IAIdentifier string
+	footerImages string
 }
 
 type RscType int
@@ -78,6 +107,8 @@ const (
 	tLink RscType = iota
 	tSrc
 	tVideo
+	tLinkedStory
+	tPhotobucket
 )
 
 // Rsc is an adventure resource.
@@ -104,89 +135,109 @@ func (a advDir) File(name string) string {
 const stampFormat = "20060102150405"
 const userAgent = "MSPFA Archiver/0.8"
 
+func decodeJSON(r io.Reader, v interface{}) error {
+	dec := json.NewDecoder(r)
+	// dec.DisallowUnknownFields() // Go 1.10
+	return dec.Decode(v)
+}
+
 func getStoryJSON(storyID string, dir advDir) (*StoryJSON, error) {
-	stat, err := os.Stat(dir.File("adventure.json"))
-	if err != nil {
+	stat, statErr := os.Stat(dir.File("adventure.json"))
+	if os.IsNotExist(statErr) {
+		return downloadStoryJSON(storyID, dir)
+	} else if statErr != nil {
+		return nil, statErr
+	} else { // stat success
 		t := stat.ModTime()
 		if *forceAdvUpdate || t.Before(time.Now().Add(24*7*time.Hour)) {
-			_ = downloadStoryJSON(storyID, dir)
-		}
-
-		// exists
-	} else {
-		err = downloadStoryJSON(storyID, dir)
-		if err != nil {
-			return nil, err
+			// try to ignore errors and use existing file
+			story, _ := downloadStoryJSON(storyID, dir)
+			if story != nil {
+				return story, nil
+			}
 		}
 	}
+
 	f, err := os.Open(dir.File("adventure.json"))
 	if err != nil {
 		return nil, errors.Wrap(err, "read adventure.json")
 	}
-	dec := json.NewDecoder(f)
-	// dec.DisallowUnknownFields() // Go 1.10
 	var story *StoryJSON
-	err = dec.Decode(&story)
-	if err != nil {
-		return nil, errors.Wrap(err, "adventure.json decode error")
-	}
-	return story, nil
+	err = decodeJSON(f, &story)
+	return story, errors.Wrap(err, "adventure.json decode error")
 }
 
-func downloadStoryJSON(storyID string, dir advDir) error {
+func downloadStoryJSON(storyID string, dir advDir) (*StoryJSON, error) {
 	// wget --post-data "do=story&s=21746" https://mspfa.com/
 	form := url.Values{}
 	form.Set("do", "story")
 	form.Set("s", storyID)
+	fmt.Println("Fetching", form)
 	resp, err := http.PostForm("https://mspfa.com/", form)
 	if err != nil {
-		return errors.Wrapf(err, "get story %s", storyID)
+		return nil, errors.Wrapf(err, "get story %s", storyID)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		by, _ := ioutil.ReadAll(resp.Body)
-		return errors.Errorf("get story %s: response code %s: %s", storyID, resp.Status, by)
+		return nil, errors.Errorf("get story %s: response code %s: %s", storyID, resp.Status, by)
 	}
 
 	f, err := os.Create(dir.File("adventure.json"))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
-	if err != nil {
-		return errors.Wrapf(err, "get story %s", storyID)
-	}
-	return f.Close()
+	copyBody := io.TeeReader(resp.Body, f)
+	var story *StoryJSON
+	err = decodeJSON(copyBody, &story)
+	return story, errors.Wrap(err, "adventure.json decode error")
 }
 
-func downloadUserJSON(userID string, dir advDir) error {
+func downloadUserJSON(userID UserID, dir advDir) (*User, error) {
 	// wget --post-data "do=user&u=1234456789"
 
 	os.Mkdir(dir.File("users"), 0755)
-	f, err := os.Create(dir.File(fmt.Sprintf("users/%s.json", userID)))
-	if err != nil {
-		return err
+	fileName := dir.File(fmt.Sprintf("users/%s.json", userID))
+	_, statErr := os.Stat(fileName)
+	if os.IsNotExist(statErr) {
+		goto statcontinue
+	} else if statErr != nil {
+		return nil, statErr
+	} else { // stat success
+		f, err := os.Open(fileName)
+		if err != nil {
+			goto statcontinue
+		}
+		var user *User
+		err = decodeJSON(f, &user)
+		return user, err
 	}
-	defer f.Close()
+statcontinue:
+
 	form := url.Values{}
 	form.Set("do", "user")
-	form.Set("u", userID)
+	form.Set("u", string(userID))
+	fmt.Println("Fetching", form)
 	resp, err := http.PostForm("https://mspfa.com/", form)
 	if err != nil {
-		return errors.Wrapf(err, "get user %s", userID)
+		return nil, errors.Wrapf(err, "get user %s", userID)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		by, _ := ioutil.ReadAll(resp.Body)
-		return errors.Errorf("get user %s: response code %s: %s", userID, resp.Status, by)
+		return nil, errors.Errorf("get user %s: response code %s: %s", userID, resp.Status, by)
 	}
 
-	_, err = io.Copy(f, resp.Body)
+	f, err := os.Create(fileName)
 	if err != nil {
-		return errors.Wrapf(err, "get user %s", userID)
+		return nil, err
 	}
-	return nil
+	defer f.Close()
+	copyBody := io.TeeReader(resp.Body, f)
+	var user *User
+	err = decodeJSON(copyBody, &user)
+	return user, err
 }
 
 func downloadResources(dir advDir) error {
@@ -208,7 +259,7 @@ func downloadResources(dir advDir) error {
 		"--tries", "3",
 		"--retry-connrefused", "--retry-dns-error",
 		"-P", dir.File("files"),
-		"--exclude-domains", "discordapp.com,youtube.com,assets.tumblr.com,mspfa.com",
+		"--exclude-domains", "discordapp.com,youtube.com,assets.tumblr.com",
 		// "--youtube-dl",
 	)
 	// cmd.Dir = string(dir)
@@ -222,6 +273,23 @@ func downloadResources(dir advDir) error {
 	return errors.Wrap(err, "wpull")
 }
 
+func downloadFile(uri string, dest string) error {
+	resp, err := http.Get(uri)
+	if err != nil {
+		return errors.Wrapf(err, "downloading %s", uri)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return errors.Errorf("Error code %s downloading %s", resp.Status, uri)
+	}
+	f, err := os.Create(dest)
+	if err != nil {
+		return errors.Wrapf(err, "downloading %s", uri)
+	}
+	io.Copy(f, resp.Body)
+	return errors.Wrapf(f.Close(), "downloading %s", uri)
+}
+
 func downloadVideo(uri string, dir advDir) error {
 	parsed, err := url.Parse(uri)
 	if err != nil {
@@ -229,16 +297,18 @@ func downloadVideo(uri string, dir advDir) error {
 	}
 
 	cmd := exec.Command("youtube-dl",
-		"-o", dir.File("videos/"+parsed.Host+"/%(id)s.%(format_id)s.%(ext)s"),
+		"-o", dir.File("videos/"+parsed.Host+"/%(id)s.%(ext)s"),
 		// "-k", // keep bestvideo/bestaudio fragments
 		"-r", "3M",
-		"-f", "bestvideo+bestaudio/best,bestvideo[height<=480]+bestaudio/best[height<=480]",
+		"-f", "bestvideo+bestaudio/best",
 		"--http-chunk-size", "3M",
 		uri,
 	)
 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	fmt.Println("Ready to run youtube-dl")
+	fmt.Println(cmd.Args)
 	err = cmd.Run()
 	return errors.Wrap(err, "youtube-dl")
 }
@@ -263,7 +333,22 @@ func downloadVideos(dir advDir) error {
 	}
 	return nil
 }
-func toArchiveURL(up string) string {
+
+func toAbsoluteArchiveURL(up string) string {
+	u, err := url.Parse(up)
+	if err != nil {
+		return up
+	}
+	if *iaIdentifier == "" {
+		return up
+	}
+	if u.RawQuery == "" {
+		return fmt.Sprintf("https://archive.org/download/%s/files/%s%s", *iaIdentifier, u.Host, u.Path)
+	}
+	return fmt.Sprintf("https://archive.org/download/%s/files/%s%s?%s", *iaIdentifier, u.Host, u.Path, u.RawQuery)
+}
+
+func toRelativeArchiveURL(up string) string {
 	u, err := url.Parse(up)
 	if err != nil {
 		return up
@@ -297,13 +382,13 @@ func (sj *StoryJSON) PlainDesc() string {
 
 func (sj *StoryJSON) GetIcon() string {
 	if sj.Icon != "" {
-		return toArchiveURL(sj.Icon)
+		return toRelativeArchiveURL(sj.Icon)
 	}
 	return "./assets/wat/wat.njs." + strconv.Itoa(rand.New(rand.NewSource(sj.ID)).Intn(4))
 }
 
 func (sj *StoryJSON) FooterImages() string {
-	return sj.footerImages
+	return sj.Conf.footerImages
 }
 
 func writeHTML(story *StoryJSON, dir advDir, tmpl *template.Template, which string) error {
@@ -377,21 +462,20 @@ func copyAssets(story *StoryJSON, dir advDir) error {
 		fmt.Fprint(&choices, n)
 		copyAsset(fmt.Sprintf("random/random.njs.%d", n), dir, &wg)
 	}
-	story.footerImages = choices.String()
-	fmt.Println(story.footerImages)
-	wg.Wait()
+	story.Conf.footerImages = choices.String()
 
-	fmt.Println("Writing view HTML...")
-	for _, f := range [...]string{"view", "log", "search"} {
-		tmpl, err := template.ParseFiles("template/"+f+".fragment.html", "template/layout.html")
-		if err != nil {
-			panic(err)
-		}
-		err = writeHTML(story, dir, tmpl, f)
-		if err != nil {
-			return err
-		}
+	// Thumbnail
+	if story.Icon != "" {
+		err = downloadFile(story.Icon, dir.File("cover.png"))
+	} else {
+		wat := rand.Intn(4)
+		err = os.Link(dir.File(fmt.Sprintf("assets/wat/wat.njs.%d", wat)), dir.File("cover.png"))
 	}
+	if err != nil {
+		return err
+	}
+
+	wg.Wait()
 
 	return nil
 }
@@ -430,9 +514,51 @@ func scanHTML(desc string, out chan<- Rsc) error {
 	}
 }
 
+func toArchiveHTML(desc template.HTML, mandatoryDownload func(s string)) template.HTML {
+	context, err := html.Parse(strings.NewReader("<span></span>"))
+	if err != nil {
+		panic(err)
+	}
+	nodes, err := html.ParseFragment(strings.NewReader(string(desc)), context.FirstChild.LastChild)
+	if err != nil {
+		return template.HTML("(Bad HTML in description: <pre>" + html.EscapeString(err.Error()) + "</pre>")
+	}
+	var scanEl func(n *html.Node)
+	scanEl = func(n *html.Node) {
+		for ch := n.FirstChild; ch != nil; ch = ch.NextSibling {
+			scanEl(ch)
+		}
+		if n.Type == html.ElementNode {
+			for idx := range n.Attr {
+				if n.Attr[idx].Key == "src" {
+					mandatoryDownload(n.Attr[idx].Val)
+					n.Attr[idx].Val = toAbsoluteArchiveURL(n.Attr[idx].Val)
+				} else if n.Attr[idx].Key == "href" {
+					// toWebArchiveURL()
+					// v.Value = toArchiveURL(v.Value)
+				}
+			}
+		}
+	}
+	for _, n := range nodes {
+		scanEl(n)
+	}
+
+	var buf bytes.Buffer
+	for _, n := range nodes {
+		fmt.Println(n)
+		err = html.Render(&buf, n)
+		if err != nil {
+			return template.HTML("(Could not re-render HTML: <pre>" + html.EscapeString(err.Error()) + "</pre>")
+		}
+	}
+	fmt.Println(buf.String())
+	return template.HTML(buf.String())
+}
+
 var cssTrimLeft = regexp.MustCompile(`^url\((['"]?)`)
 
-func scanURL(maybeURL string, out chan<- Rsc) {
+func scanURL(maybeURL string, out chan<- Rsc, ty RscType) {
 	if maybeURL == "" {
 		return
 	}
@@ -442,7 +568,7 @@ func scanURL(maybeURL string, out chan<- Rsc) {
 		if u.Host == "" {
 			return
 		}
-		out <- Rsc{U: maybeURL}
+		out <- Rsc{U: maybeURL, Type: ty}
 	}
 }
 
@@ -460,7 +586,7 @@ func scanCSS(src template.CSS, out chan<- Rsc) {
 			matched = matched[locs[0*2+1]:]
 			matched = strings.TrimSuffix(matched, quoteChar+")")
 			// fmt.Println("DEBUG: css uri extraction:", matched)
-			scanURL(matched, out)
+			scanURL(matched, out, tSrc)
 		}
 	}
 }
@@ -507,55 +633,22 @@ func scanBBCode(p *Page, out chan<- Rsc) {
 
 var mspfaBaseURL, _ = url.Parse("https://mspfa.com/")
 
-func scanURLs(story *StoryJSON, out chan<- Rsc) error {
+func scanPages(story *StoryJSON, out chan<- Rsc) {
 	for idx := range story.Pages {
 		scanBBCode(&story.Pages[idx], out)
 	}
-	scanHTML(string(story.Desc), out)
-	if strings.HasPrefix(story.Icon, "/images") {
-		u, err := url.Parse(story.Icon)
-		if err != nil {
-			return err
-		}
-		u = u.ResolveReference(mspfaBaseURL)
-		out <- Rsc{U: u.String(), Type: tSrc}
-	} else {
-		scanURL(story.Icon, out)
-	}
-	scanCSS(story.CSS, out)
-	scanURL(story.Q, out)
-	scanURL(story.AuthLink, out)
-
-	return nil
 }
 
-func readStoryJSON(dir advDir) (*StoryJSON, error) {
-	f, err := os.Open(dir.JSONFile())
-	if err != nil {
-		return nil, errors.Wrap(err, "adventure.json does not exist")
-	}
-
-	dec := json.NewDecoder(f)
-	// dec.DisallowUnknownFields() // Go 1.10
-	var out *StoryJSON
-	err = dec.Decode(&out)
-	if err != nil {
-		return nil, errors.Wrap(err, "adventure.json decode error")
-	}
-	return out, nil
-}
-
-func writeURLsFile(urlList, videoList map[string]struct{}, dir advDir) error {
-	urls := make([]string, 0, len(urlList))
-	for link := range urlList {
-		_, isVideo := videoList[link]
-		if !isVideo {
-			urls = append(urls, link)
+func writeURLsFile(resourceList map[Rsc]struct{}, dir advDir) error {
+	urls := make([]string, 0, len(resourceList))
+	videos := make([]string, 0, 5)
+	for rsc := range resourceList {
+		switch rsc.Type {
+		case tLink, tSrc:
+			urls = append(urls, rsc.U)
+		case tVideo:
+			videos = append(videos, rsc.U)
 		}
-	}
-	videos := make([]string, 0, len(videoList))
-	for link := range videoList {
-		videos = append(videos, link)
 	}
 	sort.Strings(urls)
 	sort.Strings(videos)
@@ -599,24 +692,7 @@ var videoURLs = []string{
 	"bandcamp.com/track",
 }
 
-func archiveStory(storyID string, dir advDir) error {
-	err := downloadStoryJSON(storyID, dir)
-	if err != nil {
-		return err
-	}
-
-	story, err := readStoryJSON(dir)
-	if err != nil {
-		return err
-	}
-
-	urlChan := make(chan Rsc)
-	var scanErr error
-	go func() {
-		scanErr = scanURLs(story, urlChan)
-		close(urlChan)
-	}()
-
+func buildResourceList(urlChan chan Rsc) map[Rsc]struct{} {
 	resourceList := make(map[Rsc]struct{})
 	for resource := range urlChan {
 		u, err := url.Parse(resource.U)
@@ -624,7 +700,7 @@ func archiveStory(storyID string, dir advDir) error {
 			fmt.Println(resource, err)
 			continue
 		}
-		isVideo := false
+		u = u.ResolveReference(mspfaBaseURL)
 		if resource.Type == tLink {
 			for _, videoStr := range videoURLs {
 				if strings.Contains(resource.U, videoStr) {
@@ -633,31 +709,104 @@ func archiveStory(storyID string, dir advDir) error {
 			}
 			// Do not download internal links
 			if u.Host == "mspfa.com" {
-				continue
+				fetchAnyways := false
+				switch {
+				case u.Path == "", u.Path == "/":
+					q := u.Query()
+					if q.Get("s") != "" {
+						resource.Type = tLinkedStory
+					}
+				case strings.HasPrefix(u.Path, "/images"):
+					resource.Type = tSrc
+					fetchAnyways = true
+				}
+
+				if !fetchAnyways {
+					continue
+				}
+			}
+			if strings.Contains(u.Host, "photobucket") {
+				// fuck photobucket
+				resource.Type = tPhotobucket
 			}
 		}
 
 		resourceList[resource] = struct{}{}
 	}
+	return resourceList
+}
 
-	writeURLsFile(urlList, videoList, dir)
+func archiveStory(story *StoryJSON, dir advDir) error {
+	story.Conf = new(OutputConf)
+	story.Conf.IsArchiveOrg = *iaIdentifier != ""
+	story.Conf.IAIdentifier = *iaIdentifier
+
+	urlChan := make(chan Rsc)
+	var scanErr error
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				if rErr, ok := rec.(error); ok {
+					scanErr = errors.Wrap(rErr, "scanning")
+				} else {
+					scanErr = errors.Errorf("scanning: %v", rec)
+				}
+			}
+		}()
+		out := urlChan
+		scanPages(story, out)
+		scanHTML(string(story.Desc), out)
+		scanURL(story.Icon, out, tSrc)
+		scanCSS(story.CSS, out)
+		scanURL(story.Q, out, tSrc)
+		scanURL(story.AuthLink, out, tLink)
+		close(urlChan)
+	}()
+
+	resourceList := buildResourceList(urlChan)
+
+	var err error
+	err = writeURLsFile(resourceList, dir)
+	if err != nil {
+		return err
+	}
+	err = writeMetadataCSV(story, dir)
+	if err != nil {
+		return err
+	}
 
 	err = copyAssets(story, dir)
 	if err != nil {
 		return err
 	}
 
+	fmt.Println("Writing view HTML...")
+	for _, f := range [...]string{"view", "log", "search"} {
+		tmpl, err := template.ParseFiles("template/"+f+".fragment.html", "template/layout.html")
+		if err != nil {
+			panic(err)
+		}
+		err = writeHTML(story, dir, tmpl, f)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 var tmplDescription = template.Must(template.New("ia-description").Parse(
-	`<div>An archival copy of {{.S.Title}} (<a href="https://mspfa.com/?s={{.S.ID}}">https://mspfa.com/?s={{.S.ID}}</a>) as of {{.MonthYear}}.</div>
+	`<div>An archival copy of {{.S.Name}} (<a href="https://mspfa.com/?s={{.S.ID}}">https://mspfa.com/?s={{.S.ID}}</a>) as of {{.MonthYear}}.</div>
 <div><br></div>
-<div>Start Reading: <a href="https://archive.org/download/{{.Identifier}}/view.html?s={{.S.ID}}&p=1">https://archive.org/download/{{.Identifier}}/view.html?s={{.S.ID}}&p=1</a><</div>
+<div>Start Reading: <a href="https://archive.org/download/{{.Identifier}}/view.html?s={{.S.ID}}&p=1">https://archive.org/download/{{.Identifier}}/view.html?s={{.S.ID}}&p=1</a></div>
 <div><br></div>
-<div>{{.S.Desc}}</div>`))
+<div>{{.FilterDesc}}</div>`))
 
 func writeMetadataCSV(story *StoryJSON, dir advDir) error {
+	if *iaIdentifier == "" {
+		return nil // skip
+	}
+
 	f, err := os.Create(dir.File("ia-upload-view.csv"))
 	if err != nil {
 		return err
@@ -665,29 +814,108 @@ func writeMetadataCSV(story *StoryJSON, dir advDir) error {
 	defer f.Close()
 	w := csv.NewWriter(f)
 	defer w.Flush()
-	headers := []string{"identifier", "file"}
 
-	var metaFields map[string]string
-
-	var buf bytes.Buffer
-	var dataDesc = struct {
-		Identifier string
-		MonthYear  string
-		S          *StoryJSON
-	}{
-		Identifier: *iaIdentifier,
-		MonthYear:  time.Now().Format("2006-01"),
-		S:          story,
+	headers := make([]string, 0, 10)
+	values := make([]string, 0, 10)
+	addHV := func(h, v string) {
+		headers = append(headers, h)
+		values = append(values, v)
 	}
-	err = tmplDescription.Execute(&buf, dataDesc)
-	if err != nil {
-		return err
-	}
-	metaFields["description"] = buf.String()
+	var extraFiles []string
 
+	addHV("identifier", *iaIdentifier)
+	addHV("file", "adventure.json")
+	{
+		var buf bytes.Buffer
+		var dataDesc = struct {
+			Identifier string
+			MonthYear  string
+			FilterDesc template.HTML
+			S          *StoryJSON
+		}{
+			Identifier: *iaIdentifier,
+			MonthYear:  time.Now().Format("2006-01"),
+			FilterDesc: toArchiveHTML(story.Desc, func(s string) {
+				extraFiles = append(extraFiles, toRelativeArchiveURL(s))
+			}),
+			S: story,
+		}
+		err = tmplDescription.Execute(&buf, dataDesc)
+		if err != nil {
+			f.Close()
+			return err
+		}
+		addHV("description", buf.String())
+	}
+	{
+		var newestPage float64
+		for idx := range story.Pages {
+			p := &story.Pages[len(story.Pages)-idx-1]
+			if p.Date > newestPage {
+				newestPage = p.Date
+			}
+		}
+		newestPageDate := time.Unix(
+			int64(newestPage/1000),
+			int64(newestPage*float64(time.Millisecond/time.Nanosecond))%int64(time.Second))
+		addHV("date", newestPageDate.Format("2006-01-02"))
+		addHV("title", fmt.Sprintf("MSPFA Archive - %s", story.Name))
+	}
+	addHV("collection[1]", "opensource_media")
+	addHV("collection[2]", "test_collection") // TEST
+	addHV("mediatype", "texts")
+	addHV("subject[1]", "mspfa")
+	addHV("publisher", "MS Paint Fan Adventures")
+	addHV("mspfa-id", fmt.Sprint(story.ID))
+	addHV("scanner", userAgent)
+	{
+		var authors []string
+		for _, au := range strings.Split(story.Author, ",") {
+			authors = append(authors, strings.TrimSpace(au))
+		}
+		for _, u := range story.Mirroring {
+			user, err := downloadUserJSON(u, dir)
+			if err != nil {
+				f.Close()
+				return err
+			}
+			found := false
+			for _, v := range authors {
+				if strings.EqualFold(v, user.Name) {
+					found = true
+				}
+			}
+			if !found {
+				authors = append(authors, user.Name)
+			}
+		}
+		for idx, au := range authors {
+			addHV(fmt.Sprintf("creator[%d]", idx+1), au)
+		}
+	}
+
+	w.Write(headers)
+	w.Write(values)
+
+	addFile := func(filename string) {
+		values := make([]string, len(headers))
+		values[0] = *iaIdentifier
+		values[1] = filename
+		w.Write(values)
+	}
+	addFile("log.html")
+	addFile("search.html")
+	addFile("view.html")
+	addFile("cover.png")
+	for _, v := range extraFiles {
+		addFile(v)
+	}
+	return nil
 }
 
 func writeUploadFilesCSV(dir advDir) error {
+	return nil // TODO
+
 	f, err := os.Create(dir.File("ia-upload-files.csv"))
 	if err != nil {
 		return err
@@ -696,6 +924,8 @@ func writeUploadFilesCSV(dir advDir) error {
 	w := csv.NewWriter(f)
 	defer w.Flush()
 	w.Write([]string{"identifier", "file"})
+
+	return nil
 }
 
 var iaIdentifier = flag.String("ident", "", "Internet Archive item identifier")
@@ -728,7 +958,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = archiveStory(storyID, advDir(folder))
+	story, err := getStoryJSON(storyID, advDir(folder))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%+v\n", err)
+		os.Exit(1)
+	}
+
+	err = archiveStory(story, advDir(folder))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%+v\n", err)
 		os.Exit(1)

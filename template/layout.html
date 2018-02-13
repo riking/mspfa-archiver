@@ -1,9 +1,14 @@
 <!DOCTYPE html>
 <html>
 <head>
+	<meta charset="UTF-8">
+	<meta http-equiv="Content-Security-Policy" content="{{if .Conf.IsArchiveOrg}}
+		default-src archive.org *.archive.org https://fonts.googleapis.com;
+		script-src archive.org *.archive.org;
+		frame-src data: archive.org *.archive.org;{{end}}
+		upgrade-insecure-requests;">
 	
 	<title>{{.Name}}</title>
-	<meta charset="UTF-8">
 	<meta name="description" content="{{.PlainDesc}}">
 	<meta name="author" content="Quirky Jay">
 	<meta property="og:title" content="{{.Name}}">
@@ -15,6 +20,10 @@
 	<link href="https://fonts.googleapis.com/css?family=Press+Start+2P" rel="stylesheet">
 	<link rel="stylesheet" type="text/css" href="https://archive.org/download/mspfa-archive-assets/assets/mspfa.css">
 	<link rel="stylesheet" type="text/css" href="https://archive.org/download/mspfa-archive-assets/assets/extra.css">
+	
+	<meta id="msconfig"
+		data-rewrite-urls="{{if .Conf.IsArchiveOrg}}true{{end}}"
+		data-ia-identifier="{{.Conf.IAIdentifier}}">
 </head>
 <body>
 	<div id="main">
@@ -72,7 +81,7 @@
         <div></div>
     </form>
     <div id="loading"></div>
-    <script src="https://archive.org/download/mspfa-archive-assets/assets/mspfa.js"></script>
+    <script src="https://archive.org/download/mspfa-archive-assets/assets/mspfa-v2.js"></script>
 </body>
 </html>
 
