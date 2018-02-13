@@ -241,7 +241,7 @@ statcontinue:
 }
 
 func downloadResources(dir advDir) error {
-	os.MkdirAll(dir.File("files"), 0755)
+	os.MkdirAll(dir.File("linked"), 0755)
 
 	// ../../wpull --warc-file ../resources --warc-append --warc-cdx --wait 0.1 --page-requisites --tries 3 --retry-connrefused --retry-dns-error --database ../wpull.db --output-file ../wpull-$(date +%s).log --user-agent "MSPFA Archiver/0.8" --span-hosts-allow page-requisites -l 3
 	cmd := exec.Command("./wpull",
@@ -258,7 +258,7 @@ func downloadResources(dir advDir) error {
 		"--wait", "0.1",
 		"--tries", "3",
 		"--retry-connrefused", "--retry-dns-error",
-		"-P", dir.File("files"),
+		"-P", dir.File("linked"),
 		"--exclude-domains", "discordapp.com,youtube.com,assets.tumblr.com",
 		// "--youtube-dl",
 	)
@@ -343,9 +343,9 @@ func toAbsoluteArchiveURL(up string) string {
 		return up
 	}
 	if u.RawQuery == "" {
-		return fmt.Sprintf("https://archive.org/download/%s/files/%s%s", *iaIdentifier, u.Host, u.Path)
+		return fmt.Sprintf("https://archive.org/download/%s/linked/%s%s", *iaIdentifier, u.Host, u.Path)
 	}
-	return fmt.Sprintf("https://archive.org/download/%s/files/%s%s?%s", *iaIdentifier, u.Host, u.Path, u.RawQuery)
+	return fmt.Sprintf("https://archive.org/download/%s/linked/%s%s?%s", *iaIdentifier, u.Host, u.Path, u.RawQuery)
 }
 
 func toRelativeArchiveURL(up string) string {
@@ -354,9 +354,9 @@ func toRelativeArchiveURL(up string) string {
 		return up
 	}
 	if u.RawQuery == "" {
-		return fmt.Sprintf("./files/%s%s", u.Host, u.Path)
+		return fmt.Sprintf("./linked/%s%s", u.Host, u.Path)
 	}
-	return fmt.Sprintf("./files/%s%s?%s", u.Host, u.Path, u.RawQuery)
+	return fmt.Sprintf("./linked/%s%s?%s", u.Host, u.Path, u.RawQuery)
 }
 
 // for templates
