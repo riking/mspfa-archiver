@@ -282,15 +282,7 @@ func uploadItem(story *StoryJSON, dir advDir) error {
 		}
 	}()
 
-	files := [...]string{
-		"linked", "videos", "users", "story", "assets",
-		"resources.cdx", "resources.warc.gz",
-		"cover.png",
-		"log.html", "search.html", "view.html",
-		"urls.txt", "videos.txt",
-	}
-
-	for _, f := range files {
+	for _, f := range uploadFileList {
 		iterateFolder(dir.File(f), f, func(file, relPath string) error {
 			<-limitCh
 			wg.Add(1)
@@ -303,6 +295,14 @@ func uploadItem(story *StoryJSON, dir advDir) error {
 	close(ch)
 	wg2.Wait()
 	return nil
+}
+
+var uploadFileList = [...]string{
+	"linked", "videos", "users", "story",
+	"resources.cdx", "resources.warc.gz",
+	"cover.png",
+	"log.html", "search.html", "view.html",
+	"urls.txt", "videos.txt",
 }
 
 var tmplDescription = template.Must(template.New("ia-description").Parse(
@@ -406,7 +406,7 @@ const dirReadMax = 500
 
 func sumItemSize(dir advDir) (int64, error) {
 	var sum int64
-	for _, dirName := range [...]string{"linked", "videos", "users", "assets", "story"} {
+	for _, dirName := range uploadFileList {
 		err := iterateFolder(dir.File(dirName), dirName, func(file, _ string) error {
 			stat, err := os.Stat(file)
 			if err != nil {
