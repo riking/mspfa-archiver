@@ -439,24 +439,24 @@
 			}
 		}
 	});
-	var rawParams;
-	if(location.href.indexOf("#") != -1) {
-		rawParams = location.href.slice(0, location.href.indexOf("#"));
-	} else {
-		rawParams = location.href;
-	}
-	if(rawParams.indexOf("?") != -1) {
-		rawParams = rawParams.slice(rawParams.indexOf("?")+1).split("&");
-	} else {
-		rawParams = [];
-	}
+	// [BEGIN] riking: change params extraction
 	var params = {};
-	for(var i = 0; i < rawParams.length; i++) {
-		try {
-			var p = rawParams[i].split("=");
-			params[p[0]] = decodeURIComponent(p[1]);
-		} catch(err) {}
+	var params_extract = function(paramsStr) {
+		var rawParams = paramsStr.split("&");
+		for(var i = 0; i < rawParams.length; i++) {
+			try {
+				var p = rawParams[i].split("=");
+				params[p[0]] = decodeURIComponent(p[1]);
+			} catch(err) {}
+		}
 	}
+	if (location.hash.indexOf("#", 1) !== -1) {
+		// view.html#s=1234&p=4#anchor
+		params_extract(location.hash.slice(1, location.hash.indexOf("#", 1)));
+		location.hash = location.hash.slice(location.hash.indexOf("#", 1)+1);
+	}
+	params_extract(location.search.slice(1));
+	// [END]
 	if(document.createEvent) {
 		Element.prototype.click = function() {
 			var evt = document.createEvent("MouseEvents");

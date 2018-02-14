@@ -309,7 +309,7 @@ var uploadFileList = [...]string{
 var tmplDescription = template.Must(template.New("ia-description").Parse(
 	`<div>An archival copy of {{.S.Name}} (<a href="https://mspfa.com/?s={{.S.ID}}">https://mspfa.com/?s={{.S.ID}}</a>) as of {{.MonthYear}}.
 <div><br>
-<div>Start Reading: <a href="https://archive.org/download/{{.Identifier}}/view.html?s={{.S.ID}}&p=1">https://archive.org/download/{{.Identifier}}/view.html?s={{.S.ID}}&p=1</a>
+<div>Start Reading: <a href="https://archive.org/download/{{.Identifier}}/view.html#s={{.S.ID}}&p=1#">https://archive.org/download/{{.Identifier}}/view.html?s={{.S.ID}}&p=1</a>
 <div><br>
 <div>{{.FilterDesc}}`))
 
