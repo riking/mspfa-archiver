@@ -132,6 +132,16 @@ func (a advDir) File(name string) string {
 	return filepath.Join(string(a), name)
 }
 
+var (
+	iaIdentifier   = flag.String("ident", "", "Internet Archive item identifier")
+	forceAdvUpdate = flag.Bool("f", false, "Force update of adventure.json")
+	outDir         = flag.String("o", "./target", "Output directory where the archive folders should be created.")
+	download       = flag.Bool("dl", false, "Download files instead of just listing them")
+)
+
+var cssTrimLeft = regexp.MustCompile(`^url\((['"]?)`)
+var mspfaBaseURL, _ = url.Parse("https://mspfa.com/")
+
 const stampFormat = "20060102150405"
 const userAgent = "MSPFA Archiver/0.8"
 
@@ -359,6 +369,16 @@ func toRelativeArchiveURL(up string) string {
 	return fmt.Sprintf("./linked/%s%s?%s", u.Host, u.Path, u.RawQuery)
 }
 
+func uploadStream(file io.Reader, remotePath string) error {
+	uri := fmt.Sprintf("https://s3.us.archive.org/%s/%s", url.PathEscape(*iaIdentifier), url.PathEscape(remotePath))
+	req, err := http.NewRequest("PUT", uri, file)
+	if err != nil {
+		fmt.Println("Failed to construct new request", uri, err)
+		panic(err)
+	}
+	req.Header.Set("Authorization", authHeader)
+}
+
 // for templates
 func (sj *StoryJSON) PlainDesc() string {
 	var buf bytes.Buffer
@@ -480,8 +500,6 @@ func copyAssets(story *StoryJSON, dir advDir) error {
 	return nil
 }
 
-var seenElementTypes = make(map[string]bool)
-
 func scanHTML(desc string, out chan<- Rsc) error {
 	tz := html.NewTokenizer(strings.NewReader(desc))
 	for {
@@ -498,16 +516,8 @@ func scanHTML(desc string, out chan<- Rsc) error {
 			for _, at := range t.Attr {
 				if at.Key == "href" {
 					out <- Rsc{U: at.Val, Type: tLink}
-					if !seenElementTypes[t.Data] {
-						seenElementTypes[t.Data] = true
-						fmt.Println("Found href on", t.Data)
-					}
 				} else if at.Key == "src" {
 					out <- Rsc{U: at.Val, Type: tSrc}
-					if !seenElementTypes[t.Data] {
-						seenElementTypes[t.Data] = true
-						fmt.Println("Found src on", t.Data)
-					}
 				}
 			}
 		}
@@ -555,8 +565,6 @@ func toArchiveHTML(desc template.HTML, mandatoryDownload func(s string)) templat
 	fmt.Println(buf.String())
 	return template.HTML(buf.String())
 }
-
-var cssTrimLeft = regexp.MustCompile(`^url\((['"]?)`)
 
 func scanURL(maybeURL string, out chan<- Rsc, ty RscType) {
 	if maybeURL == "" {
@@ -630,8 +638,6 @@ func scanBBCode(p *Page, out chan<- Rsc) {
 
 	scanHTML(p.Body, out)
 }
-
-var mspfaBaseURL, _ = url.Parse("https://mspfa.com/")
 
 func scanPages(story *StoryJSON, out chan<- Rsc) {
 	for idx := range story.Pages {
@@ -928,13 +934,7 @@ func writeUploadFilesCSV(dir advDir) error {
 	return nil
 }
 
-var iaIdentifier = flag.String("ident", "", "Internet Archive item identifier")
-var forceAdvUpdate = flag.Bool("f", false, "Force update of adventure.json")
-
 func main() {
-	outDir := flag.String("o", "./target", "Output directory where the archive folders should be created.")
-	download := flag.Bool("dl", false, "Download files instead of just listing them")
-
 	flag.Parse()
 
 	if flag.NArg() < 1 {
