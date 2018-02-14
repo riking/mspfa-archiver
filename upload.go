@@ -192,7 +192,8 @@ type progressReportingReader struct {
 func (pr *progressReportingReader) Read(p []byte) (n int, err error) {
 	n, err = pr.ReadCloser.Read(p)
 	pr.curSize += int64(n)
-	if time.Now().Add(-500 * time.Millisecond).After(pr.lastReport) {
+	if time.Now().Add(-300 * time.Millisecond).After(pr.lastReport) {
+		pr.lastReport = time.Now()
 		pr.ch <- uploadProgress{
 			stage:   2,
 			file:    pr.name,

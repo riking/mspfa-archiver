@@ -6,6 +6,7 @@
 	if (!htmlConfig.dataset.rewriteUrls) {
 		GLOBAL_ASSET_BASE = "https://mspfa.com/";
 	}
+	var defaultStoryID = htmlConfig.dataset.defaultStoryId;
 
 	// Change 404 handling
 	var adv404 = function() {
@@ -125,7 +126,7 @@
 					req.open("GET", "./story/" + data.s + ".json", true);
 					break;
 				case "user":
-					req.open("GET", "./user/" + data.s + ".json", true);
+					req.open("GET", "./user/" + data.u + ".json", true);
 					break;
 				default:
 					console.warn("Dropping request:", data);
@@ -3622,6 +3623,10 @@
 		window.addEventListener("resize", displayArrows);
 	} else if ((/\/view.html\/?$/).test(location.pathname)) { // riking: change story view test
 		// LANDMARK: Start story view
+		// [BEGIN] riking: set default story ID
+		if (!params.s)
+			params.s = parseInt(defaultStoryID);
+		// [END]
 		var p = parseInt(params.p) || 1;
 		MSPFA.story = {};
 		var page = {};
