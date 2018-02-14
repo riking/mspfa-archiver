@@ -122,9 +122,11 @@
 			var req = new XMLHttpRequest();
 			switch (data.do) {
 				case "story":
-					req.open("GET", "./adventure.json", true);
+					req.open("GET", "./story/" + data.s + ".json", true);
 					break;
-				// TODO case "user":
+				case "user":
+					req.open("GET", "./user/" + data.s + ".json", true);
+					break;
 				default:
 					console.warn("Dropping request:", data);
 					setTimeout(0, function() {
