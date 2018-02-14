@@ -282,6 +282,7 @@ func downloadResources(dir advDir) error {
 }
 
 func downloadFile(uri string, dest string) error {
+	fmt.Println("Downloading", uri)
 	resp, err := http.Get(uri)
 	if err != nil {
 		return errors.Wrapf(err, "downloading %s", uri)
@@ -474,7 +475,12 @@ func copyAssets(story *StoryJSON, dir advDir) error {
 
 	// Thumbnail
 	if story.Icon != "" {
-		err = downloadFile(story.Icon, dir.File("cover.png"))
+		u, err := url.Parse(story.Icon)
+		if err != nil {
+			return errors.Wrap(err, "parse story.Icon")
+		}
+		u = mspfaBaseURL.ResolveReference(u)
+		err = downloadFile(u.String(), dir.File("cover.png"))
 	} else {
 		wat := rand.Intn(4)
 		err = os.Link(dir.File(fmt.Sprintf("assets/wat/wat.njs.%d", wat)), dir.File("cover.png"))
@@ -694,7 +700,7 @@ func buildResourceList(urlChan chan Rsc) map[Rsc]struct{} {
 			fmt.Println(resource, err)
 			continue
 		}
-		u = u.ResolveReference(mspfaBaseURL)
+		u = mspfaBaseURL.ResolveReference(u)
 		if resource.Type == tLink {
 			for _, videoStr := range videoURLs {
 				if strings.Contains(resource.U, videoStr) {
@@ -842,6 +848,7 @@ func main() {
 		err = downloadResources(folder)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			os.Exit(1)
 		}
 		err = downloadVideos(folder)
 		if err != nil {
