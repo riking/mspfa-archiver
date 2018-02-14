@@ -118,6 +118,8 @@ type Rsc struct {
 	Type RscType
 }
 
+var authHeader string
+
 type advDir string
 
 func (a advDir) JSONFile() string {
@@ -354,9 +356,9 @@ func toRelativeArchiveURL(up string) string {
 		return up
 	}
 	if u.RawQuery == "" {
-		return fmt.Sprintf("./linked/%s%s", u.Host, u.Path)
+		return fmt.Sprintf("linked/%s%s", u.Host, u.Path)
 	}
-	return fmt.Sprintf("./linked/%s%s?%s", u.Host, u.Path, u.RawQuery)
+	return fmt.Sprintf("linked/%s%s?%s", u.Host, u.Path, u.RawQuery)
 }
 
 // for templates
@@ -928,6 +930,22 @@ func writeUploadFilesCSV(dir advDir) error {
 	return nil
 }
 
+func loadAuthKey() {
+	var auth struct {
+		AccessKey string
+		SecretKey string
+	}
+	f, err := os.Open("ias3.json")
+	if err != nil {
+		return
+	}
+	err = json.NewDecoder(f).Decode(&auth)
+	if err != nil {
+		return
+	}
+	authHeader = fmt.Sprintf("LOW %s:%s", auth.AccessKey, auth.SecretKey)
+}
+
 var iaIdentifier = flag.String("ident", "", "Internet Archive item identifier")
 var forceAdvUpdate = flag.Bool("f", false, "Force update of adventure.json")
 
@@ -937,11 +955,13 @@ func main() {
 
 	flag.Parse()
 
-	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: mspfa-mirror [adventure ID]\n"+
+	if flag.NArg() != 1 {
+		fmt.Fprintln(os.Stderr, "Usage: mspfa-mirror [-o folder] [-ident Identifier] [-dl] [adventure ID]\n"+
 			"  Downloads the adventure.json and all images of a MSPFA adventure.")
 		flag.PrintDefaults()
 	}
+
+	loadAuthKey()
 
 	storyID := flag.Arg(0)
 	_, err := strconv.Atoi(storyID)
