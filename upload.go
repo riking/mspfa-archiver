@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/md5"
 	"encoding/hex"
@@ -133,18 +134,18 @@ func uploadFile(job *uploadJob, wg *sync.WaitGroup) {
 		wg.Done()
 
 		if err == errAlreadyUploaded {
-			progress <- uploadProgress{job: job, stage: 15}
+			job.g.progress <- uploadProgress{job: job, stage: 15}
 		} else if err != nil {
-			progress <- uploadProgress{job: job, err: err}
+			job.g.progress <- uploadProgress{job: job, err: err}
 			// Resubmit failing jobs
 			job.retries--
 			if job.retries > 0 {
 				job.g.resubmit <- job
 			} else {
-				progress <- uploadProgress{job: job, stage: 16}
+				job.g.progress <- uploadProgress{job: job, stage: 16}
 			}
 		} else {
-			progress <- uploadProgress{job: job, stage: 14}
+			job.g.progress <- uploadProgress{job: job, stage: 14}
 		}
 	}()
 	err = _uploadFile(job)
@@ -160,7 +161,7 @@ func _uploadFile(job *uploadJob) error {
 		return errors.Wrap(err, "stat failed, file missing?")
 	}
 	size := stat.Size()
-	exists, md5Hash, err := idx.FileExists(localPath, remotePath, size)
+	exists, md5Hash, err := job.g.idx.FileExists(localPath, remotePath, size)
 	if err != nil {
 		return errors.Wrap(err, "checking hash")
 	} else if exists {
@@ -183,16 +184,17 @@ func _uploadFile(job *uploadJob) error {
 		return errors.Wrap(err, "failed to construct new request")
 	}
 
-	for k, v := range headers {
+	for k, v := range job.g.headers {
 		req.Header[k] = v
 	}
 	req.ContentLength = size
-	req = req.WithContext(ctx)
+	req = req.WithContext(job.ctx)
 
 	progress <- uploadProgress{job: job, stage: 1}
 	//req = awsauth.Sign(req, authCreds)
 	req.Header.Set("Authorization", authHeader)
 	req.Header.Set("Content-Md5", md5Hash)
+	req.ContentLength = size
 	req.Body = &progressReportingReader{
 		ReadCloser: req.Body,
 		curSize:    0,
@@ -200,7 +202,6 @@ func _uploadFile(job *uploadJob) error {
 		job:        job,
 		lastReport: time.Now(),
 	}
-	req.ContentLength = size
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -228,9 +229,9 @@ func (pr *progressReportingReader) Read(p []byte) (n int, err error) {
 	pr.curSize += int64(n)
 	if err == io.EOF || time.Now().Add(-300*time.Millisecond).After(pr.lastReport) {
 		pr.lastReport = time.Now()
-		job.g.progress <- uploadProgress{
+		pr.job.g.progress <- uploadProgress{
 			stage:   2,
-			job:     job,
+			job:     pr.job,
 			percent: float64(pr.curSize) / float64(pr.totalSize),
 		}
 	}
@@ -270,7 +271,11 @@ func uploadItem(story *StoryJSON, dir advDir) error {
 		return err
 	}
 	sharedHeaders.Set("X-Archive-Size-Hint", fmt.Sprint(sizeSum))
+	sharedHeaders.Set("X-Amz-Acl", "bucket-owner-full-control")
 	sharedHeaders.Set("X-Amz-Auto-Make-Bucket", "1")
+	if !*notTest {
+		sharedHeaders.Set("X-Archive-Interactive-Priority", "1")
+	}
 
 	existingIdx, err := getFilesXML()
 	if err != nil {
@@ -286,7 +291,7 @@ func uploadItem(story *StoryJSON, dir advDir) error {
 	var uploadJobCounter sync.WaitGroup
 
 	progress := make(chan uploadProgress)
-	jobs := make(chan uploadJob)
+	jobs := make(chan *uploadJob)
 	limitCh := make(chan struct{}, 10)
 	for i := 0; i < 10; i++ {
 		limitCh <- struct{}{}
@@ -297,13 +302,14 @@ func uploadItem(story *StoryJSON, dir advDir) error {
 		headers:  sharedHeaders,
 		progress: progress,
 		resubmit: jobs,
+		limitCh:  limitCh,
 	}
 
 	go func() {
 		var fileIDs = make(map[string]int)
 		var maxFileID = 0
 		for p := range progress {
-			file := p.job.remoteFile
+			file := p.job.remotePath
 			id, ok := fileIDs[file]
 			if !ok {
 				maxFileID = maxFileID + 1
@@ -326,6 +332,8 @@ func uploadItem(story *StoryJSON, dir advDir) error {
 				fmt.Printf("  [%4d] Uploading %s\n", id, file)
 			} else if p.stage == 2 {
 				fmt.Printf("  [%4d] Uploading %s... %2.2f%%\n", id, file, p.percent*100)
+			} else {
+				fmt.Println("!! Unhandled progress message", p)
 			}
 		}
 	}()
@@ -342,9 +350,7 @@ func uploadItem(story *StoryJSON, dir advDir) error {
 					localPath:  file,
 					remotePath: relPath,
 					retries:    3,
-					ctx:        context.WithTimeout(ctx, 2*time.Minute),
 				}
-				wg.Add(1)
 				return nil
 			})
 		}
@@ -355,6 +361,8 @@ func uploadItem(story *StoryJSON, dir advDir) error {
 		for job := range jobs {
 			<-limitCh
 			uploadFileProcs.Add(1)
+			job.ctx, _ = context.WithTimeout(ctx, 2*time.Minute)
+
 			go uploadFile(job, &uploadFileProcs)
 		}
 	}()
@@ -372,6 +380,10 @@ func uploadItem(story *StoryJSON, dir advDir) error {
 	return nil
 }
 
+func jsTime(t float64) time.Time {
+	return time.Unix(int64(t/1000), int64(t*float64(time.Millisecond))%int64(time.Second))
+}
+
 var uploadFileList = [...]string{
 	"linked", "videos", "users", "story",
 	"resources.cdx", "resources.warc.gz",
@@ -381,7 +393,7 @@ var uploadFileList = [...]string{
 }
 
 var tmplDescription = template.Must(template.New("ia-description").Parse(
-	`<div>An archival copy of {{.S.Name}} (<a href="https://mspfa.com/?s={{.S.ID}}">https://mspfa.com/?s={{.S.ID}}</a>) as of {{.MonthYear}}.
+	`<div>An archival copy of {{.S.Name}} (<a href="https://mspfa.com/?s={{.S.ID}}">https://mspfa.com/?s={{.S.ID}}</a>) as of {{.MonthYear}}. Contains {{len .S.Pages}} pages from {{.FirstDate}} to {{.LastDate}}.
 <div><br>
 <div>Start Reading: <a href="https://archive.org/download/{{.Identifier}}/view.html#s={{.S.ID}}&p=1#">https://archive.org/download/{{.Identifier}}/view.html?s={{.S.ID}}&p=1</a>
 <div><br>
@@ -412,11 +424,15 @@ func calculateArchiveMetadata(story *StoryJSON, dir advDir) url.Values {
 		var dataDesc = struct {
 			Identifier string
 			MonthYear  string
+			FirstDate  string
+			LastDate   string
 			FilterDesc template.HTML
 			S          *StoryJSON
 		}{
 			Identifier: *iaIdentifier,
 			MonthYear:  time.Now().Format("2006-01"),
+			FirstDate:  jsTime(story.Pages[0].Date).Format("2006-01"),
+			LastDate:   jsTime(story.Pages[len(story.Pages)-1].Date).Format("2006-01"),
 			FilterDesc: toArchiveHTML(story.Desc, func(s string) {
 				// extraFiles = append(extraFiles, toRelativeArchiveURL(s))
 			}),
@@ -505,7 +521,6 @@ func sumItemSize(dir advDir) (int64, error) {
 func iterateFolder(dir, relPath string, cb func(file, relPath string) error) error {
 	stat, err := os.Stat(dir)
 	if os.IsNotExist(err) {
-		fmt.Println("iterateFolder: file does not exist:", relPath)
 		return nil
 	} else if err != nil {
 		return errors.Wrap(err, "iterateFolder")
