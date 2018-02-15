@@ -129,7 +129,8 @@ func (a advDir) File(name string) string {
 }
 
 var (
-	iaIdentifier   = flag.String("ident", "", "Internet Archive item identifier")
+	iaIdentifier   = flag.String("ident", "", "Internet Archive item identifier. Make sure to use -u if this is for real.")
+	notTest        = flag.Bool("u", false, "Upload for real (remove test_collection)")
 	forceAdvUpdate = flag.Bool("f", false, "Force update of story .json")
 	outDir         = flag.String("o", "./target", "Output directory where the archive folders should be created.")
 	download       = flag.Bool("dl", false, "Download files instead of just listing them")
