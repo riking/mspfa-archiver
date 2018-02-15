@@ -140,7 +140,7 @@ var cssTrimLeft = regexp.MustCompile(`^url\((['"]?)`)
 var mspfaBaseURL, _ = url.Parse("https://mspfa.com/")
 
 const stampFormat = "20060102150405"
-const userAgent = "MSPFA Archiver/0.8"
+const userAgent = "MSPFA Archiver/1.0"
 
 func decodeJSON(r io.Reader, v interface{}) error {
 	dec := json.NewDecoder(r)
