@@ -126,7 +126,7 @@
 					req.open("GET", "./story/" + data.s + ".json", true);
 					break;
 				case "user":
-					req.open("GET", "./user/" + data.u + ".json", true);
+					req.open("GET", "./users/" + data.u + ".json", true);
 					break;
 				default:
 					console.warn("Dropping request:", data);
