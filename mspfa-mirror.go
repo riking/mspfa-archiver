@@ -132,6 +132,7 @@ var (
 	iaIdentifier   = flag.String("ident", "", "Internet Archive item identifier. See also -test")
 	testIA         = flag.Bool("test", false, "Flag IA uploads with test_collection")
 	forceUpload    = flag.Bool("fu", false, "Force IA upload despite download errors")
+	fixMetadata    = flag.Bool("fixmeta", false, "Override existing IA item metadata")
 	forceAdvUpdate = flag.Bool("f", false, "Force update of story .json")
 	outDir         = flag.String("o", "./target", "Output directory where the archive folders should be created.")
 	download       = flag.Bool("dl", false, "Download files instead of just listing them")
@@ -143,7 +144,7 @@ var cssTrimLeft = regexp.MustCompile(`^url\((['"]?)`)
 var mspfaBaseURL, _ = url.Parse("https://mspfa.com/")
 
 const stampFormat = "20060102150405"
-const userAgent = "MSPFA Archiver/1.0"
+const userAgent = "Mozilla/5.0 (Archival Script) AppleWebKit/600.7.12 (KHTML, like Gecko) Safari/600.7.12 MSPFA-Archiver/1.0"
 
 func decodeJSON(r io.Reader, v interface{}) error {
 	dec := json.NewDecoder(r)

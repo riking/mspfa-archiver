@@ -328,6 +328,13 @@ func uploadItem(story *StoryJSON, dir advDir) error {
 		headers: sharedHeaders,
 	}
 
+	if *fixMetadata {
+		// Set to override metadata
+		sharedHeaders.Set("X-Archive-Ignore-Preexisting-Bucket", "1")
+		// Clear out the index, we're uploading a single file
+		existingIdx.md5index = make(map[string][]byte)
+		return runUploadJob(ctx, jobG, dir, []string{"cover.png"})
+	}
 	return runUploadJob(ctx, jobG, dir, uploadFileList[:])
 }
 
