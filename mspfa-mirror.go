@@ -855,22 +855,35 @@ func main() {
 		os.Exit(1)
 	}
 
+	downloadFailed := false
 	if *download {
 		err = downloadResources(folder)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
-			os.Exit(1)
+			downloadFailed = true
 		}
 		err = downloadVideos(folder)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			downloadFailed = true
 		}
+		err = downloadPhotobucketURLs(folder)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			downloadFailed = true
+		}
+	}
+
+	if downloadFailed {
+		fmt.Println("Download step failed, exiting without uploading to IA.")
+		os.Exit(3)
 	}
 
 	if *iaIdentifier != "" {
 		err = uploadItem(story, folder)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			os.Exit(4)
 		}
 	}
 }
