@@ -19,7 +19,7 @@
 			// This is a live site, not an archive site
 			return up;
 		}
-		var u = new URL(up, location);
+		var u = new URL(up, "https://mspfa.com");
 		if (/archive.org$/.test(u.host)) {
 			// already edited
 			return up;

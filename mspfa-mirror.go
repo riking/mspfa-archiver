@@ -566,11 +566,12 @@ func scanURL(maybeURL string, out chan<- Rsc, ty RscType) {
 	}
 
 	u, err := url.Parse(maybeURL)
+	u = mspfaBaseURL.ResolveReference(u)
 	if err == nil {
 		if u.Host == "" {
 			return
 		}
-		out <- Rsc{U: maybeURL, Type: ty}
+		out <- Rsc{U: u.String(), Type: ty}
 	}
 }
 
@@ -701,6 +702,7 @@ func buildResourceList(urlChan chan Rsc) map[Rsc]struct{} {
 			continue
 		}
 		u = mspfaBaseURL.ResolveReference(u)
+		resource.U = u.String()
 		if resource.Type == tLink {
 			for _, videoStr := range videoURLs {
 				if strings.Contains(resource.U, videoStr) {
