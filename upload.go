@@ -140,6 +140,7 @@ func uploadFile(job *uploadJob, wg *sync.WaitGroup) {
 			// Resubmit failing jobs
 			job.retries--
 			if job.retries > 0 {
+				time.Sleep(1 * time.Second)
 				job.g.resubmit <- job
 			} else {
 				job.g.progress <- uploadProgress{job: job, stage: 16}
@@ -209,7 +210,11 @@ func _uploadFile(job *uploadJob) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return errors.Errorf("status code %s", resp.Status)
+		by, _ := ioutil.ReadAll(resp.Body)
+		if len(by) > 1000 {
+			by = by[:1000]
+		}
+		return errors.Errorf("status code %s: %s", resp.Status, by)
 	}
 	io.Copy(ioutil.Discard, resp.Body)
 	return nil
@@ -288,23 +293,52 @@ func uploadItem(story *StoryJSON, dir advDir) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var uploadJobCounter sync.WaitGroup
+	jobG := &uploadJobGlobal{
+		idx:     existingIdx,
+		headers: sharedHeaders,
+	}
 
-	progress := make(chan uploadProgress)
+	return runUploadJob(ctx, jobG, dir, uploadFileList[:])
+}
+
+func doAssetUpdate() {
+	dir := advDir("template")
+	*iaIdentifier = "mspfa-archive-assets"
+	idx, err := getFilesXML()
+	if err != nil {
+		fmt.Printf("%+v\n", err)
+		os.Exit(1)
+	}
+	headers := url.Values{}
+	headers.Set("X-Amz-Auto-Make-Bucket", "0")
+
+	jobG := &uploadJobGlobal{
+		idx:     idx,
+		headers: headers,
+	}
+	ctx := context.Background()
+
+	err = runUploadJob(ctx, jobG, dir, []string{"assets"})
+	if err != nil {
+		fmt.Printf("%+v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runUploadJob(ctx context.Context, jobG *uploadJobGlobal, dir advDir, fileList []string) error {
 	jobs := make(chan *uploadJob)
+	jobG.resubmit = jobs
+
 	limitCh := make(chan struct{}, 10)
 	for i := 0; i < 10; i++ {
 		limitCh <- struct{}{}
 	}
+	jobG.limitCh = limitCh
 
-	jobG := uploadJobGlobal{
-		idx:      existingIdx,
-		headers:  sharedHeaders,
-		progress: progress,
-		resubmit: jobs,
-		limitCh:  limitCh,
-	}
+	progress := make(chan uploadProgress)
+	jobG.progress = progress
 
+	var uploadJobCounter sync.WaitGroup
 	go func() {
 		var fileIDs = make(map[string]int)
 		var maxFileID = 0
@@ -342,11 +376,11 @@ func uploadItem(story *StoryJSON, dir advDir) error {
 	fileIterWg.Add(1)
 	go func() {
 		defer fileIterWg.Done()
-		for _, f := range uploadFileList {
+		for _, f := range fileList {
 			iterateFolder(dir.File(f), f, func(file, relPath string) error {
 				uploadJobCounter.Add(1)
 				jobs <- &uploadJob{
-					g:          &jobG,
+					g:          jobG,
 					localPath:  file,
 					remotePath: relPath,
 					retries:    3,

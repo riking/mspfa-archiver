@@ -135,6 +135,8 @@ var (
 	forceAdvUpdate = flag.Bool("f", false, "Force update of story .json")
 	outDir         = flag.String("o", "./target", "Output directory where the archive folders should be created.")
 	download       = flag.Bool("dl", false, "Download files instead of just listing them")
+
+	updateAssets = flag.Bool("updateassets", false, "Update assets instead of archving a story")
 )
 
 var cssTrimLeft = regexp.MustCompile(`^url\((['"]?)`)
@@ -645,12 +647,15 @@ func scanPages(story *StoryJSON, out chan<- Rsc) {
 
 func writeURLsFile(resourceList map[Rsc]struct{}, dir advDir) error {
 	urls := make([]string, 0, len(resourceList))
+	links := make([]string, 0, 10)
 	videos := make([]string, 0, 5)
 	photobuckets := make([]string, 0, 0)
 	for rsc := range resourceList {
 		switch rsc.Type {
-		case tLink, tSrc:
+		case tSrc:
 			urls = append(urls, rsc.U)
+		case tLink:
+			links = append(links, rsc.U)
 		case tVideo:
 			videos = append(videos, rsc.U)
 		case tPhotobucket:
@@ -658,6 +663,7 @@ func writeURLsFile(resourceList map[Rsc]struct{}, dir advDir) error {
 		}
 	}
 	sort.Strings(urls)
+	sort.Strings(links)
 	sort.Strings(videos)
 	sort.Strings(photobuckets)
 
@@ -679,6 +685,10 @@ func writeURLsFile(resourceList map[Rsc]struct{}, dir advDir) error {
 	}
 
 	err := writeList("urls.txt", urls)
+	if err != nil {
+		return err
+	}
+	err = writeList("links.txt", links)
 	if err != nil {
 		return err
 	}
@@ -821,13 +831,17 @@ func writeUploadFilesCSV(dir advDir) error {
 func main() {
 	flag.Parse()
 
+	if *updateAssets {
+		loadAuthKey()
+		doAssetUpdate()
+		return
+	}
+
 	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "Usage: mspfa-mirror [-o folder] [-ident Identifier] [-dl] [adventure ID]\n"+
 			"  Downloads the story .json and all images of a MSPFA adventure.")
 		flag.PrintDefaults()
 	}
-
-	loadAuthKey()
 
 	storyID := flag.Arg(0)
 	_, err := strconv.Atoi(storyID)
@@ -881,6 +895,7 @@ func main() {
 	}
 
 	if *iaIdentifier != "" {
+		loadAuthKey()
 		err = uploadItem(story, folder)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
