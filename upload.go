@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -107,6 +108,8 @@ type uploadJobGlobal struct {
 	// Taken before starting uploadFile(), given on (even error) completion.
 	limitCh chan struct{}
 
+	limitTokensReleased int32
+
 	failed bool
 }
 
@@ -127,10 +130,33 @@ type uploadProgress struct {
 
 var errAlreadyUploaded = errors.Errorf("")
 
+const concurrentUploadMax = 2
+
+func releaseLimitToken(g *uploadJobGlobal, allowExtraRelease bool) {
+	g.limitCh <- struct{}{}
+
+	if !allowExtraRelease {
+		return
+	}
+	for {
+		c := atomic.LoadInt32(&g.limitTokensReleased)
+		if c >= concurrentUploadMax {
+			return
+		}
+		if atomic.CompareAndSwapInt32(&g.limitTokensReleased, c, c+1) {
+			fmt.Println("releasing token #", c+1)
+			g.limitCh <- struct{}{}
+			return
+		} else {
+			continue
+		}
+	}
+}
+
 func uploadFile(job *uploadJob, wg *sync.WaitGroup) {
 	var err error
 	defer func() {
-		job.g.limitCh <- struct{}{}
+		releaseLimitToken(job.g, err == nil)
 		wg.Done()
 
 		if err == errAlreadyUploaded {
@@ -210,6 +236,10 @@ func _uploadFile(job *uploadJob) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
+		if resp.Status == "503 Slow Down" {
+			fmt.Println("Got 503 Slow Down. Sleeping.")
+			time.Sleep(1 * time.Minute)
+		}
 		by, _ := ioutil.ReadAll(resp.Body)
 		if len(by) > 1000 {
 			by = by[:1000]
@@ -329,10 +359,9 @@ func runUploadJob(ctx context.Context, jobG *uploadJobGlobal, dir advDir, fileLi
 	jobs := make(chan *uploadJob)
 	jobG.resubmit = jobs
 
-	limitCh := make(chan struct{}, 10)
-	for i := 0; i < 10; i++ {
-		limitCh <- struct{}{}
-	}
+	limitCh := make(chan struct{}, concurrentUploadMax)
+	limitCh <- struct{}{}
+	jobG.limitTokensReleased = 1
 	jobG.limitCh = limitCh
 
 	progress := make(chan uploadProgress)
@@ -419,11 +448,11 @@ func jsTime(t float64) time.Time {
 }
 
 var uploadFileList = [...]string{
-	"linked", "videos", "users", "story",
-	"resources.cdx", "resources.warc.gz",
 	"cover.png", "assets/ico.png",
 	"log.html", "search.html", "view.html",
-	"urls.txt", "videos.txt",
+	"urls.txt", "links.txt", "videos.txt",
+	"linked", "videos", "users", "story",
+	"resources.cdx", "resources.warc.gz",
 }
 
 var tmplDescription = template.Must(template.New("ia-description").Parse(
