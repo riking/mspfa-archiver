@@ -42,6 +42,11 @@
 		var choice = Math.floor(Math.random() * 4);
 		return GLOBAL_ASSET_BASE + "/assets/wat/wat.njs." + choice;
 	}
+	function getIcon(story, watCB) {
+		if (story.o)
+			return toArchiveURL("resource", story.o);
+		return randomWat() + watCB;
+	}
 	// [END]
 
 	console.log("This website was programmed almost entirely by Miroware.\nhttps://miroware.io/");
@@ -1292,7 +1297,7 @@
 		imga.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 		var img = new Image();
 		img.classList.add("cellicon");
-		img.src = toArchiveURL("resource", story.o) || (randomWat() + "?cb=" + story.i); // riking: move random images to clientside
+		img.src = getIcon(story, "?cb=" + story.i); // riking: use archived files for icons
 		imga.appendChild(img);
 		td1.appendChild(imga);
 		tr.appendChild(td1);
@@ -3448,7 +3453,7 @@
 			s.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 			var icon = new Image();
 			icon.width = icon.height = 150;
-			icon.src = toArchiveURL("resource", story.o) || (randomWat() + "?cb=" + story.i); // riking: move random images to clientside
+			icon.src = getIcon(story, "?cb=" + story.i); // riking: use archived files for icons
 			s.appendChild(icon);
 			s.appendChild(document.createElement("br"));
 			var name = document.createElement("span");
@@ -3932,7 +3937,7 @@
 				var icon = new Image();
 				icon.id = "storyicon";
 				icon.width = icon.height = 150;
-				icon.src = toArchiveURL("resource", MSPFA.story.o) || randomWat(); // riking: move random images to clientside
+				icon.src = getIcon(story, "?cb=" + story.i); // riking: use archived files for icons
 				icon.style.marginRight = "6px";
 				td1.appendChild(icon);
 				tr1.appendChild(td1);

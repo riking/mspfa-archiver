@@ -129,8 +129,9 @@ func (a advDir) File(name string) string {
 }
 
 var (
-	iaIdentifier   = flag.String("ident", "", "Internet Archive item identifier. Make sure to use -u if this is for real.")
-	notTest        = flag.Bool("u", false, "Upload for real (remove test_collection)")
+	iaIdentifier   = flag.String("ident", "", "Internet Archive item identifier. See also -test")
+	testIA         = flag.Bool("test", true, "Flag IA uploads with test_collection")
+	forceUpload    = flag.Bool("fu", false, "Force IA upload despite download errors")
 	forceAdvUpdate = flag.Bool("f", false, "Force update of story .json")
 	outDir         = flag.String("o", "./target", "Output directory where the archive folders should be created.")
 	download       = flag.Bool("dl", false, "Download files instead of just listing them")
@@ -736,7 +737,7 @@ func buildResourceList(urlChan chan Rsc) map[Rsc]struct{} {
 				}
 			}
 		}
-		if strings.Contains(u.Host, "img.photobucket") {
+		if strings.Contains(u.Host, "photobucket.com") {
 			// fuck photobucket
 			resource.Type = tPhotobucket
 		}
@@ -874,7 +875,7 @@ func main() {
 		}
 	}
 
-	if downloadFailed {
+	if downloadFailed && !*forceUpload {
 		fmt.Println("Download step failed, exiting without uploading to IA.")
 		os.Exit(3)
 	}

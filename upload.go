@@ -273,7 +273,7 @@ func uploadItem(story *StoryJSON, dir advDir) error {
 	sharedHeaders.Set("X-Archive-Size-Hint", fmt.Sprint(sizeSum))
 	sharedHeaders.Set("X-Amz-Acl", "bucket-owner-full-control")
 	sharedHeaders.Set("X-Amz-Auto-Make-Bucket", "1")
-	if !*notTest {
+	if *testIA {
 		sharedHeaders.Set("X-Archive-Interactive-Priority", "1")
 	}
 
@@ -459,7 +459,7 @@ func calculateArchiveMetadata(story *StoryJSON, dir advDir) url.Values {
 		setHdr("title", fmt.Sprintf("MSPFA Archive - %s", story.Name))
 	}
 	addHdr("collection", "opensource_media")
-	if !*notTest {
+	if *testIA {
 		addHdr("collection", "test_collection") // TEST
 	}
 	setHdr("mediatype", "texts")

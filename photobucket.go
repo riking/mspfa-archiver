@@ -22,8 +22,10 @@ import (
 var (
 	// match groups: key, album, username, filename
 	photobucketDirectRgx = regexp.MustCompile(`img\.photobucket\.com\/(albums\/([\w\-]+)\/([\w\-]+)\/(.*))`)
-	errPhotobucketBWE    = stdErrors.New("photobucket: bandwidth exceeded, wait 6 hours and try again")
-	bweSHA1, _           = hex.DecodeString("ec057900112e21a3147b2cc422bac00675fbf1c0")
+	// match groups: key, album, username, filename
+	photobucketDirectHTMLRgx = regexp.MustCompile(`\w*\.photobucket\.com\/(albums\/([\w\-]+)\/([\w\-]+)\/(.*))`)
+	errPhotobucketBWE        = stdErrors.New("photobucket: bandwidth exceeded, wait 6 hours and try again")
+	bweSHA1, _               = hex.DecodeString("ec057900112e21a3147b2cc422bac00675fbf1c0")
 )
 
 func getPhotobucketMediaID(filename string) string {
@@ -72,6 +74,9 @@ func photobucketFileExists(destFile string) (bool, error) {
 
 func downloadPhotobucket(uri string, dir advDir) error {
 	match := photobucketDirectRgx.FindStringSubmatch(uri)
+	if match == nil {
+		match = photobucketDirectHTMLRgx.FindStringSubmatch(uri)
+	}
 	if match == nil {
 		return errors.Errorf("Failed to match photobucket direct regex against '%s'", uri)
 	}
