@@ -3937,7 +3937,7 @@
 				var icon = new Image();
 				icon.id = "storyicon";
 				icon.width = icon.height = 150;
-				icon.src = getIcon(story, "?cb=" + story.i); // riking: use archived files for icons
+				icon.src = getIcon(MSPFA.story, "?cb=" + story.i); // riking: use archived files for icons
 				icon.style.marginRight = "6px";
 				td1.appendChild(icon);
 				tr1.appendChild(td1);

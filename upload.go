@@ -387,7 +387,7 @@ func jsTime(t float64) time.Time {
 var uploadFileList = [...]string{
 	"linked", "videos", "users", "story",
 	"resources.cdx", "resources.warc.gz",
-	"cover.png",
+	"cover.png", "assets/ico.png",
 	"log.html", "search.html", "view.html",
 	"urls.txt", "videos.txt",
 }
