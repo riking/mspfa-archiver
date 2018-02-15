@@ -704,7 +704,7 @@ var videoURLs = []string{
 func buildResourceList(urlChan chan Rsc) map[Rsc]struct{} {
 	resourceList := make(map[Rsc]struct{})
 	for resource := range urlChan {
-		u, err := url.Parse(resource.U)
+		u, err := url.Parse(strings.TrimSpace(resource.U))
 		if err != nil {
 			fmt.Println(resource, err)
 			continue
