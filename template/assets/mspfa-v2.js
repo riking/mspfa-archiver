@@ -3448,7 +3448,7 @@
 			s.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 			var icon = new Image();
 			icon.width = icon.height = 150;
-			icon.src = story.o || (randomWat() + "?cb=" + story.i); // riking: move random images to clientside
+			icon.src = toArchiveURL("resource", story.o) || (randomWat() + "?cb=" + story.i); // riking: move random images to clientside
 			s.appendChild(icon);
 			s.appendChild(document.createElement("br"));
 			var name = document.createElement("span");
@@ -3932,7 +3932,7 @@
 				var icon = new Image();
 				icon.id = "storyicon";
 				icon.width = icon.height = 150;
-				icon.src = MSPFA.story.o || randomWat(); // riking: move random images to clientside
+				icon.src = toArchiveURL("resource", MSPFA.story.o) || randomWat(); // riking: move random images to clientside
 				icon.style.marginRight = "6px";
 				td1.appendChild(icon);
 				tr1.appendChild(td1);
