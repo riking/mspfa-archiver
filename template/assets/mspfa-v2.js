@@ -1292,7 +1292,7 @@
 		imga.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 		var img = new Image();
 		img.classList.add("cellicon");
-		img.src = story.o || (randomWat() + "?cb=" + story.i); // riking: move random images to clientside
+		img.src = toArchiveURL("resource", story.o) || (randomWat() + "?cb=" + story.i); // riking: move random images to clientside
 		imga.appendChild(img);
 		td1.appendChild(imga);
 		tr.appendChild(td1);
