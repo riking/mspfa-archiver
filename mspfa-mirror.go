@@ -484,6 +484,7 @@ func copyAssets(story *StoryJSON, dir advDir) error {
 		err = downloadFile(u.String(), dir.File("cover.png"))
 	} else {
 		wat := rand.Intn(4)
+		_ = os.Remove(dir.File("cover.png"))
 		err = os.Link(dir.File(fmt.Sprintf("assets/wat/wat.njs.%d", wat)), dir.File("cover.png"))
 	}
 	if err != nil {
@@ -644,43 +645,49 @@ func scanPages(story *StoryJSON, out chan<- Rsc) {
 func writeURLsFile(resourceList map[Rsc]struct{}, dir advDir) error {
 	urls := make([]string, 0, len(resourceList))
 	videos := make([]string, 0, 5)
+	photobuckets := make([]string, 0, 0)
 	for rsc := range resourceList {
 		switch rsc.Type {
 		case tLink, tSrc:
 			urls = append(urls, rsc.U)
 		case tVideo:
 			videos = append(videos, rsc.U)
+		case tPhotobucket:
+			photobuckets = append(photobuckets, rsc.U)
 		}
 	}
 	sort.Strings(urls)
 	sort.Strings(videos)
+	sort.Strings(photobuckets)
 
-	f, err := os.Create(dir.File("urls.txt"))
-	if err != nil {
-		return errors.Wrap(err, "writing urls file")
-	}
-	defer f.Close()
-	w := bufio.NewWriter(f)
-	for _, link := range urls {
-		fmt.Fprintln(w, link)
-	}
-	err = w.Flush()
-	if err != nil {
-		return errors.Wrap(err, "writing urls file")
+	writeList := func(fileName string, lines []string) error {
+		f, err := os.Create(dir.File(fileName))
+		if err != nil {
+			return errors.Wrapf(err, "writing %s", fileName)
+		}
+		defer f.Close()
+		w := bufio.NewWriter(f)
+		for _, link := range lines {
+			fmt.Fprintln(w, link)
+		}
+		err = w.Flush()
+		if err != nil {
+			return errors.Wrapf(err, "writing %s", fileName)
+		}
+		return nil
 	}
 
-	f, err = os.Create(dir.File("videos.txt"))
+	err := writeList("urls.txt", urls)
 	if err != nil {
-		return errors.Wrap(err, "writing videos file")
+		return err
 	}
-	defer f.Close()
-	w = bufio.NewWriter(f)
-	for _, link := range videos {
-		fmt.Fprintln(w, link)
-	}
-	err = w.Flush()
+	err = writeList("videos.txt", videos)
 	if err != nil {
-		return errors.Wrap(err, "writing urls file")
+		return err
+	}
+	err = writeList("photobucket.txt", photobuckets)
+	if err != nil {
+		return err
 	}
 
 	return err
@@ -728,10 +735,10 @@ func buildResourceList(urlChan chan Rsc) map[Rsc]struct{} {
 					continue
 				}
 			}
-			if strings.Contains(u.Host, "photobucket") {
-				// fuck photobucket
-				resource.Type = tPhotobucket
-			}
+		}
+		if strings.Contains(u.Host, "img.photobucket") {
+			// fuck photobucket
+			resource.Type = tPhotobucket
 		}
 
 		resourceList[resource] = struct{}{}
@@ -769,6 +776,7 @@ func archiveStory(story *StoryJSON, dir advDir) error {
 	resourceList := buildResourceList(urlChan)
 
 	var err error
+	fmt.Println("Writing URLs file...")
 	err = writeURLsFile(resourceList, dir)
 	if err != nil {
 		return err
