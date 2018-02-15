@@ -94,8 +94,31 @@ func (idx *archiveFilesXML) FileExists(localPath, remotePath string, size int64)
 	return false, hex.EncodeToString(sum), nil
 }
 
+type uploadJobGlobal struct {
+	idx *archiveFilesXML
+	// Headers to apply to every upload
+	headers url.Values
+	// Channel to report progress updates on
+	progress chan uploadProgress
+	// Channel to resubmit failing jobs
+	resubmit chan *uploadJob
+	// Channel for ratelimit tokens.
+	// Taken before starting uploadFile(), given on (even error) completion.
+	limitCh chan struct{}
+
+	failed bool
+}
+
+type uploadJob struct {
+	ctx        context.Context
+	localPath  string
+	remotePath string
+	retries    int
+	g          *uploadJobGlobal
+}
+
 type uploadProgress struct {
-	file    string
+	job     *uploadJob
 	err     error
 	percent float64
 	stage   int
@@ -103,22 +126,35 @@ type uploadProgress struct {
 
 var errAlreadyUploaded = errors.Errorf("")
 
-func uploadFile(localPath, remotePath string, idx *archiveFilesXML, headers url.Values, progress chan uploadProgress, wg *sync.WaitGroup) {
+func uploadFile(job *uploadJob, wg *sync.WaitGroup) {
 	var err error
 	defer func() {
-		if err == errAlreadyUploaded {
-			progress <- uploadProgress{file: remotePath, stage: 5}
-		} else if err != nil {
-			progress <- uploadProgress{file: remotePath, err: err}
-		} else {
-			progress <- uploadProgress{file: remotePath, stage: 4}
-		}
+		job.g.limitCh <- struct{}{}
 		wg.Done()
+
+		if err == errAlreadyUploaded {
+			progress <- uploadProgress{job: job, stage: 15}
+		} else if err != nil {
+			progress <- uploadProgress{job: job, err: err}
+			// Resubmit failing jobs
+			job.retries--
+			if job.retries > 0 {
+				job.g.resubmit <- job
+			} else {
+				progress <- uploadProgress{job: job, stage: 16}
+			}
+		} else {
+			progress <- uploadProgress{job: job, stage: 14}
+		}
 	}()
-	err = _uploadFile(localPath, remotePath, idx, headers, progress)
+	err = _uploadFile(job)
 }
 
-func _uploadFile(localPath, remotePath string, idx *archiveFilesXML, headers url.Values, progress chan uploadProgress) error {
+func _uploadFile(job *uploadJob) error {
+	localPath := job.localPath
+	remotePath := job.remotePath
+	progress := job.g.progress
+
 	stat, err := os.Stat(localPath)
 	if err != nil {
 		return errors.Wrap(err, "stat failed, file missing?")
@@ -151,8 +187,9 @@ func _uploadFile(localPath, remotePath string, idx *archiveFilesXML, headers url
 		req.Header[k] = v
 	}
 	req.ContentLength = size
+	req = req.WithContext(ctx)
 
-	progress <- uploadProgress{file: remotePath, stage: 1}
+	progress <- uploadProgress{job: job, stage: 1}
 	//req = awsauth.Sign(req, authCreds)
 	req.Header.Set("Authorization", authHeader)
 	req.Header.Set("Content-Md5", md5Hash)
@@ -160,8 +197,7 @@ func _uploadFile(localPath, remotePath string, idx *archiveFilesXML, headers url
 		ReadCloser: req.Body,
 		curSize:    0,
 		totalSize:  size,
-		name:       remotePath,
-		ch:         progress,
+		job:        job,
 		lastReport: time.Now(),
 	}
 	req.ContentLength = size
@@ -174,7 +210,6 @@ func _uploadFile(localPath, remotePath string, idx *archiveFilesXML, headers url
 	if resp.StatusCode != 200 {
 		return errors.Errorf("status code %s", resp.Status)
 	}
-	progress <- uploadProgress{file: remotePath, stage: 3}
 	io.Copy(ioutil.Discard, resp.Body)
 	return nil
 }
@@ -183,8 +218,7 @@ type progressReportingReader struct {
 	io.ReadCloser
 	curSize    int64
 	totalSize  int64
-	name       string
-	ch         chan uploadProgress
+	job        *uploadJob
 	lastReport time.Time
 }
 
@@ -192,11 +226,11 @@ type progressReportingReader struct {
 func (pr *progressReportingReader) Read(p []byte) (n int, err error) {
 	n, err = pr.ReadCloser.Read(p)
 	pr.curSize += int64(n)
-	if time.Now().Add(-300 * time.Millisecond).After(pr.lastReport) {
+	if err == io.EOF || time.Now().Add(-300*time.Millisecond).After(pr.lastReport) {
 		pr.lastReport = time.Now()
-		pr.ch <- uploadProgress{
+		job.g.progress <- uploadProgress{
 			stage:   2,
-			file:    pr.name,
+			job:     job,
 			percent: float64(pr.curSize) / float64(pr.totalSize),
 		}
 	}
@@ -246,55 +280,95 @@ func uploadItem(story *StoryJSON, dir advDir) error {
 		fmt.Println("loaded index of", len(existingIdx.md5index), "existing files")
 	}
 
-	var wg sync.WaitGroup
-	var wg2 sync.WaitGroup
-	ch := make(chan uploadProgress)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var uploadJobCounter sync.WaitGroup
+
+	progress := make(chan uploadProgress)
+	jobs := make(chan uploadJob)
 	limitCh := make(chan struct{}, 10)
 	for i := 0; i < 10; i++ {
 		limitCh <- struct{}{}
 	}
 
-	wg2.Add(1)
+	jobG := uploadJobGlobal{
+		idx:      existingIdx,
+		headers:  sharedHeaders,
+		progress: progress,
+		resubmit: jobs,
+	}
+
 	go func() {
-		defer wg2.Done()
 		var fileIDs = make(map[string]int)
 		var maxFileID = 0
-		for p := range ch {
-			id, ok := fileIDs[p.file]
+		for p := range progress {
+			file := p.job.remoteFile
+			id, ok := fileIDs[file]
 			if !ok {
 				maxFileID = maxFileID + 1
 				id = maxFileID
-				fileIDs[p.file] = id
+				fileIDs[file] = id
 			}
 			if p.err != nil {
-				fmt.Printf("  [%4d] %s Error: %v\n", id, p.file, p.err)
-				limitCh <- struct{}{}
-			} else if p.stage == 4 {
-				fmt.Printf("  [%4d] %s Complete\n", id, p.file)
-				limitCh <- struct{}{}
-			} else if p.stage == 5 {
-				fmt.Printf("  [%4d] %s Already Uploaded\n", id, p.file)
-				limitCh <- struct{}{}
+				fmt.Printf("  [%4d] Error %s: %v\n", id, file, p.err)
+			} else if p.stage == 14 {
+				fmt.Printf("  [%4d] Done %s\n", id, file)
+				uploadJobCounter.Done()
+			} else if p.stage == 15 {
+				fmt.Printf("  [%4d] Done %s: Already Uploaded\n", id, file)
+				uploadJobCounter.Done()
+			} else if p.stage == 16 {
+				fmt.Printf("  [%4d] Giving up %s after multiple retries\n", id, file)
+				jobG.failed = true
+				uploadJobCounter.Done()
 			} else if p.stage == 1 {
-				fmt.Printf("  [%4d] %s Uploading...\n", id, p.file)
+				fmt.Printf("  [%4d] Uploading %s\n", id, file)
 			} else if p.stage == 2 {
-				fmt.Printf("  [%4d] %s Uploading... %2.2f%%\n", id, p.file, p.percent*100)
+				fmt.Printf("  [%4d] Uploading %s... %2.2f%%\n", id, file, p.percent*100)
 			}
 		}
 	}()
 
-	for _, f := range uploadFileList {
-		iterateFolder(dir.File(f), f, func(file, relPath string) error {
-			<-limitCh
-			wg.Add(1)
-			go uploadFile(file, relPath, existingIdx, sharedHeaders, ch, &wg)
-			return nil
-		})
-	}
+	var fileIterWg sync.WaitGroup
+	fileIterWg.Add(1)
+	go func() {
+		defer fileIterWg.Done()
+		for _, f := range uploadFileList {
+			iterateFolder(dir.File(f), f, func(file, relPath string) error {
+				uploadJobCounter.Add(1)
+				jobs <- &uploadJob{
+					g:          &jobG,
+					localPath:  file,
+					remotePath: relPath,
+					retries:    3,
+					ctx:        context.WithTimeout(ctx, 2*time.Minute),
+				}
+				wg.Add(1)
+				return nil
+			})
+		}
+	}()
 
-	wg.Wait()
-	close(ch)
-	wg2.Wait()
+	var uploadFileProcs sync.WaitGroup
+	go func() {
+		for job := range jobs {
+			<-limitCh
+			uploadFileProcs.Add(1)
+			go uploadFile(job, &uploadFileProcs)
+		}
+	}()
+
+	// Wait for all initial jobs to be added to the queue
+	fileIterWg.Wait()
+	// Wait for jobs to complete
+	uploadJobCounter.Wait()
+	// Shut down job launcher
+	close(jobs)
+	// Wait for all uploadFile() instances to exit
+	uploadFileProcs.Wait()
+	// Shut down progress channel
+	close(progress)
 	return nil
 }
 
@@ -374,6 +448,9 @@ func calculateArchiveMetadata(story *StoryJSON, dir advDir) url.Values {
 	}
 	setHdr("mediatype", "texts")
 	addHdr("subject", "mspfa")
+	for _, v := range story.Tags {
+		addHdr("subject", v)
+	}
 	setHdr("publisher", "MS Paint Fan Adventures")
 	setHdr("mspfa-id", fmt.Sprint(story.ID))
 	setHdr("scanner", userAgent)
