@@ -25,6 +25,7 @@ import (
 
 	"github.com/glenn-brown/golang-pkg-pcre/src/pkg/pcre"
 	cssparse "github.com/gorilla/css/scanner"
+	"github.com/kballard/go-shellquote"
 	"github.com/pkg/errors"
 	"golang.org/x/net/html"
 )
@@ -138,13 +139,17 @@ var (
 	download       = flag.Bool("dl", false, "Download files instead of just listing them")
 
 	updateAssets = flag.Bool("updateassets", false, "Update assets instead of archving a story")
+
+	wpullArgs = flag.String("wpull-args", "", "Extra arguments to wpull")
 )
 
 var cssTrimLeft = regexp.MustCompile(`^url\((['"]?)`)
 var mspfaBaseURL, _ = url.Parse("https://mspfa.com/")
 
 const stampFormat = "20060102150405"
-const userAgent = "Mozilla/5.0 (Archival Script) AppleWebKit/600.7.12 (KHTML, like Gecko) Safari/600.7.12 MSPFA-Archiver/1.0"
+
+//const userAgent = "Mozilla/5.0 (Archival Script) AppleWebKit/600.7.12 (KHTML, like Gecko) Safari/600.7.12 MSPFA-Archiver/1.0"
+const userAgent = "MSPFA-Archiver/1.0"
 
 func decodeJSON(r io.Reader, v interface{}) error {
 	dec := json.NewDecoder(r)
@@ -273,16 +278,23 @@ func downloadResources(dir advDir) error {
 		"--retry-connrefused", "--retry-dns-error",
 		"-P", dir.File("linked"),
 		"--exclude-domains", "discordapp.com,youtube.com,assets.tumblr.com",
-		// "--youtube-dl",
 	)
-	// cmd.Dir = string(dir)
+	extraArgs, err := shellquote.Split(*wpullArgs)
+	if err != nil {
+		fmt.Println("[FATAL] Bad -wpull-args value:", err)
+		os.Exit(9)
+	}
+	if len(extraArgs) > 0 {
+		cmd.Args = append(cmd.Args, extraArgs...)
+	}
+
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	fmt.Println("Ready to run wpull")
 	fmt.Println(cmd.Args)
-	err := cmd.Run()
+	err = cmd.Run()
 	return errors.Wrap(err, "wpull")
 }
 
