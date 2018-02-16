@@ -528,6 +528,7 @@ func calculateArchiveMetadata(story *StoryJSON, dir advDir) url.Values {
 		setHdr("date", newestPageDate.Format("2006-01-02"))
 		setHdr("title", fmt.Sprintf("MSPFA Archive - %s", story.Name))
 	}
+	addHdr("collection", "mspaintfanadventures")
 	addHdr("collection", "opensource_media")
 	if *testIA {
 		addHdr("collection", "test_collection") // TEST
