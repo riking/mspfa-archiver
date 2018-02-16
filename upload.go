@@ -28,6 +28,9 @@ import (
 
 var authCreds awsauth.Credentials
 var authHeader string
+var errAlreadyUploaded = errors.Errorf("")
+
+const concurrentUploadMax = 2
 
 func loadAuthKey() {
 	var auth awsauth.Credentials
@@ -127,10 +130,6 @@ type uploadProgress struct {
 	percent float64
 	stage   int
 }
-
-var errAlreadyUploaded = errors.Errorf("")
-
-const concurrentUploadMax = 2
 
 func releaseLimitToken(g *uploadJobGlobal, allowExtraRelease bool) {
 	g.limitCh <- struct{}{}
@@ -428,12 +427,19 @@ func runUploadJob(ctx context.Context, jobG *uploadJobGlobal, dir advDir, fileLi
 
 	var uploadFileProcs sync.WaitGroup
 	go func() {
+		var dispatchedTasks = 0
 		for job := range jobs {
 			<-limitCh
 			uploadFileProcs.Add(1)
 			job.ctx, _ = context.WithTimeout(ctx, 2*time.Minute)
 
 			go uploadFile(job, &uploadFileProcs)
+			dispatchedTasks++
+
+			if dispatchedTasks > 50 {
+				dispatchedTasks = 0
+				// ensureSlowDown()
+			}
 		}
 	}()
 
@@ -537,6 +543,23 @@ func calculateArchiveMetadata(story *StoryJSON, dir advDir) url.Values {
 	addHdr("subject", "mspfa")
 	for _, v := range story.Tags {
 		addHdr("subject", v)
+	}
+	{
+		// Page range
+		fac10 := 1
+		pages := len(story.Pages)
+		var pr1, pr2 int
+		for {
+			if pages <= fac10*3 {
+				pr1, pr2 = fac10, fac10*3
+			}
+			if pages <= (fac10*10 - 1) {
+				pr1, pr2 = (fac10*3 + 1), (fac10*10 - 1)
+			}
+			fac10 *= 10
+		}
+		// addHdr("subject", fmt.Sprintf("pagecount-%v-%v", pr1, pr2))
+		setHdr("pagecount", pages)
 	}
 	setHdr("publisher", "MS Paint Fan Adventures")
 	setHdr("mspfa-id", fmt.Sprint(story.ID))
