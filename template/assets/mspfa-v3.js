@@ -156,12 +156,10 @@
 				while (count-- > 0) {
 					nextLine(-1);
 				}
-				console.log("cdx:", curIdx);
 				return promiseSleep(10).then(nextLine);
 			};
 			return promiseSleep(0).then(nextLine);
 		}).then(function() {
-			console.log("done loading cdx");
 			loading.classList.remove('active');
 			cdxReady = true;
 
@@ -270,7 +268,6 @@
 				loading.classList.remove("active");
 			}
 			var blob = new Blob([inflator.result.slice(contentStart)], {type: cdxData.mime});
-			console.log("made blob", blob);
 			return URL.createObjectURL(blob);
 		}).catch(function(err) {
 			console.error(err);
