@@ -207,7 +207,7 @@
 		var cdxData = cdxIndex[url];
 		if (!cdxData) {
 			// TODO photobucket images need to get saved in WARC
-			return toArchiveURL("resource", url);
+			return Promise.resolve(toArchiveURL("resource", url));
 		}
 		var headers = new Headers();
 		headers.set('Range', 'bytes=' + cdxData.cOffset + '-' + (cdxData.cOffset + cdxData.cSize - 1));

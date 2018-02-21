@@ -277,6 +277,7 @@ func downloadResources(dir advDir) error {
 		"--tries", "3",
 		"--retry-connrefused", "--retry-dns-error",
 		"-P", dir.File("linked"),
+		"--delete-after",
 		"--exclude-domains", "discordapp.com,youtube.com,assets.tumblr.com",
 	)
 	extraArgs, err := shellquote.Split(*wpullArgs)

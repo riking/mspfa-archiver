@@ -85,6 +85,12 @@ func downloadPhotobucket(uri string, dir advDir) error {
 	filename := match[4]
 	mediaID := getPhotobucketMediaID(filename)
 
+	// fixups
+	if strings.HasSuffix(filename, ".pn") {
+		filename = filename + "g"
+		uri = uri + "g"
+	}
+
 	destination := toRelativeArchiveURL(uri)
 	destFile := dir.File(destination)
 	err := os.MkdirAll(filepath.Dir(destFile), 0755)
