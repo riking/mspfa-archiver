@@ -25,7 +25,7 @@
 			return up;
 		}
 		if (type === "resource") {
-			return "./linked/" + encodeURIComponent(u.host) + encodeURIComponent(u.pathname) + encodeURIComponent(u.search);
+			return "./linked/" + encodeURIComponent(u.host) + encodeURIComponent(u.pathname).replace(/%2F/g, "/").replace(/%252F/g, "%2F") + encodeURIComponent(u.search);
 		} else if (type === "web") {
 			return "https://web.archive.org/web/" + u.href;
 		}
@@ -47,6 +47,213 @@
 			return toArchiveURL("resource", story.o);
 		return randomWat() + watCB;
 	}
+
+	// WARC extraction
+
+	// @param Response
+	// @return Promise<pako.Inflate>
+	function decompressGZIP(response, expectedSize) {
+		var inflator = new pako.Inflate();
+		var reader = response.body.getReader();
+		var runningLength = 0;
+		var decodeSome = function(chunk) {
+			if (chunk.done) {
+				inflator.push([], true);
+				reader = null;
+				return Promise.resolve(inflator).then(function(inflator) {
+					if (inflator.err) {
+						throw "Gzip decode error: " + inflator.err + ": " + inflator.msg;
+					}
+					return inflator;
+				});
+			}
+			runningLength += chunk.value.length;
+			if (expectedSize && (runningLength > expectedSize)) {
+				console.warn("going past expected compressed size", runningLength, response);
+			}
+			inflator.push(chunk.value);
+			return reader.read().then(decodeSome);
+		};
+		return reader.read().then(decodeSome);
+	}
+
+	var promiseSleep = function(t) {
+		return new Promise(function(resolve, reject) {
+			setTimeout(resolve, t);
+		});
+	}
+
+	var cdxIndex = {};
+	var cdxPending = [];
+	var cdxReady = false;
+	// load the CDX file
+	function loadCDX(path) {
+		fetch(path).then(function(response) {
+			if (response.status !== 200) {
+				throw {msg: "Bad response code for CDX file", resp: response};
+			}
+			return decompressGZIP(response);
+		}).then(function(inflator) {
+			var cdxType = -1;
+			var processLine = function(line) {
+				if (/^ CDX/.test(line)) {
+					// header
+					if (line === " CDX N b a m s k r M S V g\n") {
+						cdxType = 1;
+						// fields:
+						// massaged URL
+						// date
+						// original URL
+						// MIME type of original document
+						// response code
+						// new-style checksum
+						// redirect
+						// meta tags
+						// compressed record size
+						// compressed arc file offset
+						// file name
+						return;
+					} else {
+						throw "Unexpected CDX header, please fix the script";
+					}
+				}
+				var split = line.split(' ');
+				var massageURL = split[0];
+				var origURL = split[2];
+				var mime = split[3];
+				var code = split[4];
+				var cSize = parseInt(split[8]);
+				var cOffset = parseInt(split[9]);
+				var obj = {
+					url: origURL,
+					mime: mime,
+					rCode: code,
+					cSize: cSize,
+					cOffset: cOffset,
+				};
+				cdxIndex[massageURL] = obj;
+				cdxIndex[origURL] = obj;
+			};
+			var textdec = new TextDecoder('utf-8');
+			var nextNewlineIdx = function(ary, curIdx) {
+				return ary.slice(curIdx).findIndex(function(el, idx, ary) { return el === 10; });
+			};
+			var curIdx = 0;
+			var nextLine = function(count) {
+				var nextIdx = nextNewlineIdx(inflator.result, curIdx);
+				if (nextIdx === -1) {
+					return false;
+				}
+				nextIdx += curIdx;
+				processLine(textdec.decode(inflator.result.slice(curIdx, nextIdx+1), {stream: true}));
+				curIdx = nextIdx + 1;
+
+				if (count === -1) { return; }
+				count = 40;
+				while (count-- > 0) {
+					nextLine(-1);
+				}
+				console.log("cdx:", curIdx);
+				return promiseSleep(10).then(nextLine);
+			};
+			return promiseSleep(0).then(nextLine);
+		}).then(function() {
+			console.log("done loading cdx");
+			cdxReady = true;
+			cdxPending.forEach(function(cb) { cb(); });
+			cdxPending = [];
+		}).catch(function(err) {
+			console.error(err);
+			var span = document.createElement("span");
+			span.appendChild(document.createTextNode("An error occurred while loading the resource index:"));
+			var pre = document.createElement("pre");
+			pre.innerText = err;
+			span.appendChild(document.createElement("br"));
+			span.appendChild(pre);
+			MSPFA.dialog("Error", span, ["Ok"]);
+		});
+	}
+	loadCDX("./resources.warc.os.cdx.gz");
+
+	// Pako test.
+	function resourceToBlob(url) {
+		if (!cdxReady) {
+			return new Promise(function(resolve, reject) {
+				if (cdxReady) {
+					resolve(resourceToBlob(url));
+					return;
+				}
+				cdxPending.push(function() {
+					resolve(resourceToBlob(url));
+				});
+			});
+		}
+		var cdxData = cdxIndex[url];
+		if (!cdxData) {
+			// TODO photobucket images need to get saved in WARC
+			return toArchiveURL("resource", url);
+		}
+		var headers = new Headers();
+		headers.set('Range', 'bytes=' + cdxData.cOffset + '-' + (cdxData.cOffset + cdxData.cSize - 1));
+		// TODO - use cdx.filename to have multiple WARCs
+		return fetch("./resources.warc.gz", { headers: headers }).then(function(response) {
+			if (response.status !== 206) {
+				throw "Bad response status, expected 206 Partial Content";
+			}
+			return decompressGZIP(response);
+		}).then(function(inflator) {
+			// inflator.result is a WARC result
+			// need to advance to the content
+			var warcResult = inflator.result;
+			var contentStart = -2;
+			warcResult.find(function(element, index, array) {
+				if (element !== 13) { // '\r'
+					return;
+				}
+				if (array[index+1] !== 10) { // '\n'
+					return;
+				}
+				if (array[index+2] !== 13) {
+					return;
+				}
+				if (array[index+3] !== 10) {
+					return;
+				}
+				// found \r\n\r\n
+				if (contentStart === -2) {
+					// start of HTTP headers
+					contentStart = -1;
+					return;
+				} else {
+					// start of HTTP content
+					contentStart = index + 4;
+					return true;
+				}
+			});
+			if (contentStart < 0) {
+				throw "could not find end of WARC headers";
+			}
+			var blob = new Blob([inflator.result.slice(contentStart)], {type: cdxData.mime});
+			console.log("made blob", blob);
+			return URL.createObjectURL(blob);
+		}).catch(function(err) {
+			console.error(err);
+			var span = document.createElement("span");
+			span.appendChild(document.createTextNode("An error occurred while loading the resource " + url + ":"));
+			var pre = document.createElement("pre");
+			pre.innerText = err;
+			span.appendChild(document.createElement("br"));
+			span.appendChild(pre);
+			MSPFA.dialog("Error", span, ["Ok"]);
+		});
+	};
+
+	resourceToBlob("com,waterworksadventure)/mspa/waterworks/img/1001.png").then(function(blobURL) {
+		var img = document.createElement("img");
+		img.src = blobURL;
+		document.body.appendChild(img);
+	});
+
 	// [END]
 
 	console.log("This website was programmed almost entirely by Miroware.\nhttps://miroware.io/");
