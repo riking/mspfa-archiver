@@ -18,7 +18,7 @@
 	
 	<meta id="msconfig"
 		data-default-story-id="{{.ID}}"
-		data-rewrite-urls="{{if .Conf.IsArchiveOrg}}true{{end}}"
+		data-rewrite-urls="{{if .Conf.IsArchiveOrg}}true{{else}}true{{end}}"
 		data-ia-identifier="{{.Conf.IAIdentifier}}">
 </head>
 <body>
@@ -78,7 +78,7 @@
     </form>
     <div id="loading"></div>
     <script src="assets/pako_inflate.min.js"></script>
-    <script src="https://archive.org/download/mspfa-archive-assets/assets/mspfa-v2.js"></script>
+    <script src="assets/mspfa-v3.js"></script>
 </body>
 </html>
 

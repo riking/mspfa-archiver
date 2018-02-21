@@ -86,9 +86,12 @@
 	var cdxIndex = {};
 	var cdxPending = [];
 	var cdxReady = false;
+	var warcReqPending = false;
 	// load the CDX file
 	function loadCDX(path) {
-		fetch(path).then(function(response) {
+		requests++;
+		loading.classList.add('active');
+		return fetch(path).then(function(response) {
 			if (response.status !== 200) {
 				throw {msg: "Bad response code for CDX file", resp: response};
 			}
@@ -159,9 +162,18 @@
 			return promiseSleep(0).then(nextLine);
 		}).then(function() {
 			console.log("done loading cdx");
+			loading.classList.remove('active');
 			cdxReady = true;
-			cdxPending.forEach(function(cb) { cb(); });
+
+			// call waiting items
+			var callbacks = cdxPending.slice(0);
 			cdxPending = [];
+			callbacks.forEach(function(cb) { cb(); });
+
+			requests--;
+			if (!requests) {
+				loading.classList.remove("active");
+			}
 		}).catch(function(err) {
 			console.error(err);
 			var span = document.createElement("span");
@@ -171,15 +183,21 @@
 			span.appendChild(document.createElement("br"));
 			span.appendChild(pre);
 			MSPFA.dialog("Error", span, ["Ok"]);
+
+			requests--;
+			if (!requests) {
+				loading.classList.remove("active");
+			}
 		});
 	}
-	loadCDX("./resources.warc.os.cdx.gz");
+	setTimeout(function() {loadCDX("./resources.warc.os.cdx.gz")}, 0);
 
-	// Pako test.
+	// Takes a resource URL, and loads it from the WARC archive.
+	// @return Promise<String>
 	function resourceToBlob(url) {
-		if (!cdxReady) {
+		if (!cdxReady || warcReqPending) {
 			return new Promise(function(resolve, reject) {
-				if (cdxReady) {
+				if (cdxReady && !warcReqPending) {
 					resolve(resourceToBlob(url));
 					return;
 				}
@@ -195,6 +213,9 @@
 		}
 		var headers = new Headers();
 		headers.set('Range', 'bytes=' + cdxData.cOffset + '-' + (cdxData.cOffset + cdxData.cSize - 1));
+		warcReqPending = true; // chrome bug
+		requests++;
+		loading.classList.add("active");
 		// TODO - use cdx.filename to have multiple WARCs
 		return fetch("./resources.warc.gz", { headers: headers }).then(function(response) {
 			if (response.status !== 206) {
@@ -202,6 +223,17 @@
 			}
 			return decompressGZIP(response);
 		}).then(function(inflator) {
+			// Chrome bug - only one Range: request allowed at once
+			// https://bugs.chromium.org/p/chromium/issues/detail?id=770694
+			warcReqPending = false;
+			if (cdxPending.length > 0) {
+				setTimeout(function() {
+					var cb = cdxPending.pop();
+					if (cb)
+						cb();
+				}, 1);
+			}
+
 			// inflator.result is a WARC result
 			// need to advance to the content
 			var warcResult = inflator.result;
@@ -233,6 +265,10 @@
 			if (contentStart < 0) {
 				throw "could not find end of WARC headers";
 			}
+			requests--;
+			if (!requests) {
+				loading.classList.remove("active");
+			}
 			var blob = new Blob([inflator.result.slice(contentStart)], {type: cdxData.mime});
 			console.log("made blob", blob);
 			return URL.createObjectURL(blob);
@@ -245,14 +281,13 @@
 			span.appendChild(document.createElement("br"));
 			span.appendChild(pre);
 			MSPFA.dialog("Error", span, ["Ok"]);
+
+			requests--;
+			if (!requests) {
+				loading.classList.remove("active");
+			}
 		});
 	};
-
-	resourceToBlob("com,waterworksadventure)/mspa/waterworks/img/1001.png").then(function(blobURL) {
-		var img = document.createElement("img");
-		img.src = blobURL;
-		document.body.appendChild(img);
-	});
 
 	// [END]
 
@@ -541,7 +576,13 @@
 						}
 						// [BEGIN] riking: Change resource URLs to archive links
 						if (es[i].attributes[j].name == "src") {
-							es[i].setAttribute(es[i].attributes[j].name, toArchiveURL("resource", es[i].attributes[j].value));
+							(function(el, attrName, attrValue) {
+								resourceToBlob(attrValue).then(function(blobURL) {
+									el.src = blobURL;
+									//el.setAttribute(attrName, blobURL);
+								});
+							})(es[i], es[i].attributes[j].name, es[i].attributes[j].value);
+							es[i].setAttribute(es[i].attributes[j].name, "");
 						}
 						// [END]
 					}
