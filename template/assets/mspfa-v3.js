@@ -268,7 +268,7 @@
 				loading.classList.remove("active");
 			}
 			var blob = new Blob([inflator.result.slice(contentStart)], {type: cdxData.mime});
-			return URL.createObjectURL(blob);
+			return URL.createObjectURL(blob) + "#" + url;
 		}).catch(function(err) {
 			console.error(err);
 			var span = document.createElement("span");
