@@ -25,7 +25,7 @@
 			return up;
 		}
 		if (type === "resource") {
-			return "./linked/" + encodeURIComponent(u.host) + encodeURIComponent(u.pathname) + encodeURIComponent(u.search);
+			return "./linked/" + encodeURIComponent(u.host) + encodeURIComponent(u.pathname).replace(/%2F/g, "/").replace(/%252F/g, "%2F") + encodeURIComponent(u.search);
 		} else if (type === "web") {
 			return "https://web.archive.org/web/" + u.href;
 		}
