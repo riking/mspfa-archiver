@@ -246,30 +246,86 @@
 
 			// inflator.result is a WARC result
 			// need to advance to the content
+			// EDIT: lol need to parse the headers to check for 3xx redirects
 			var warcResult = inflator.result;
+			var warcHeaders = new Headers();
+			var httpHeaders = new Headers();
 			var contentStart = -2;
-			warcResult.find(function(element, index, array) {
-				if (element !== 13) { // '\r'
-					return;
-				}
-				if (array[index+1] !== 10) { // '\n'
-					return;
-				}
-				if (array[index+2] !== 13) {
-					return;
-				}
-				if (array[index+3] !== 10) {
-					return;
-				}
-				// found \r\n\r\n
+			var headerMode = 0;
+			var lastNewline = 0;
+			var pendingHeaderName = "";
+			var pendingHeaderContent = "";
+			var textDecoder = new TextDecoder('utf-8');
+			var flushContinuations = function() {
+				var targetHeaderObject;
 				if (contentStart === -2) {
-					// start of HTTP headers
-					contentStart = -1;
+					targetHeaderObject = warcHeaders;
+				} else {
+					targetHeaderObject = httpHeaders;
+				}
+				if (pendingHeaderName !== "") {
+					targetHeaderObject.set(pendingHeaderName, pendingHeaderContent);
+					pendingHeaderName = "";
+					pendingHeaderContent = "";
+				}
+			};
+			var processHeaderLine = function(headerBytes, headerText) {
+				if (headerBytes[0] === 20 || headerBytes[0] === 9) { // space, tab
+					pendingHeaderContent += headerText.trim();
+					return;
+				}
+				var targetHeaderObject;
+				if (contentStart === -2) {
+					targetHeaderObject = warcHeaders;
+				} else {
+					targetHeaderObject = httpHeaders;
+				}
+				if (headerMode === 0) {
+					// status line
+					headerMode = 1;
+					var spaceIdx = headerText.indexOf(" ");
+					if (spaceIdx === -1) {
+						targetHeaderObject.set(":protocol", headerText);
+						return;
+					} else {
+						targetHeaderObject.set(":protocol", headerText.slice(0, spaceIdx));
+						var codeSpaceIdx = headerText.indexOf(" ", spaceIdx + 1);
+						targetHeaderObject.set(":code", headerText.slice(spaceIdx + 1, codeSpaceIdx));
+						targetHeaderObject.set(":status", headerText.slice(codeSpaceIdx));
+						return;
+					}
+				} else {
+					flushContinuations();
+					var colonIdx = headerText.indexOf(":");
+					pendingHeaderName = headerText.slice(0, colonIdx);
+					pendingHeaderContent = headerText.slice(colonIdx+1).trim();
+				}
+			};
+			warcResult.find(function(element, index, array) {
+				if (!(element === 13 && array[index+1] === 10)) { // '\r\n'
+					return;
+				}
+				if (!(array[index+2] === 13 && array[index+3] === 10)) {
+					// Header
+					var headerBytes = warcResult.slice(lastNewline, index);
+					var headerText = textDecoder.decode(headerBytes);
+					processHeaderLine(headerBytes, headerText);
+					lastNewline = index + 2;
 					return;
 				} else {
-					// start of HTTP content
-					contentStart = index + 4;
-					return true;
+					// found \r\n\r\n
+					if (contentStart === -2) {
+						// end of WARC headers, start of HTTP headers
+						flushContinuations();
+						contentStart = -1;
+						headerMode = 0;
+						return;
+					} else {
+						// end of HTTP headers, start of HTTP content
+						flushContinuations();
+						contentStart = index + 4;
+						return true;
+					}
 				}
 			});
 			if (contentStart < 0) {
