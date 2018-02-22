@@ -148,8 +148,8 @@ var mspfaBaseURL, _ = url.Parse("https://mspfa.com/")
 
 const stampFormat = "20060102150405"
 
-//const userAgent = "Mozilla/5.0 (Archival Script) AppleWebKit/600.7.12 (KHTML, like Gecko) Safari/600.7.12 MSPFA-Archiver/1.0"
-const userAgent = "MSPFA-Archiver/1.0"
+//const userAgent = "Mozilla/5.0 (Archival Script) AppleWebKit/600.7.12 (KHTML, like Gecko) Safari/600.7.12 MSPFA-Archiver/1.1"
+const userAgent = "MSPFA-Archiver/1.1"
 
 func decodeJSON(r io.Reader, v interface{}) error {
 	dec := json.NewDecoder(r)
