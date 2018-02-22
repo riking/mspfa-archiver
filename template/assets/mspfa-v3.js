@@ -584,13 +584,14 @@
 						}
 						// [BEGIN] riking: Change resource URLs to archive links
 						if (es[i].attributes[j].name == "src") {
+							var val = es[i].attributes[j].value;
+							es[i].setAttribute(es[i].attributes[j].name, "");
 							(function(el, attrName, attrValue) {
 								resourceToBlob(attrValue).then(function(blobURL) {
 									el.src = blobURL;
 									//el.setAttribute(attrName, blobURL);
 								});
 							})(es[i], es[i].attributes[j].name, es[i].attributes[j].value);
-							es[i].setAttribute(es[i].attributes[j].name, "");
 						}
 						// [END]
 					}
