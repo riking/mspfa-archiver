@@ -1423,6 +1423,7 @@
 								td1.style.width = "64px";
 								var img = new Image();
 								img.classList.add("cellicon");
+								// TODO - archive user avatars
 								img.src = user.o || (randomWat() + "?cb=" + user.i); // riking: move random images to clientside
 								img.style.width = img.style.height = "32px";
 								td1.appendChild(img);
@@ -1613,6 +1614,7 @@
 		imga.href = "/user/?u=" + user.i;
 		var img = new Image();
 		img.classList.add("cellicon");
+		// TODO - archive user avatars
 		img.src = user.o || (randomWat() + "?cb=" + user.i); // riking: move random images to clientside
 		imga.appendChild(img);
 		td1.appendChild(imga);
@@ -1871,6 +1873,7 @@
 							var td1 = document.createElement("td");
 							var img = new Image();
 							img.classList.add("cellicon");
+							// TODO - load from warc...?
 							img.src = s[i].o || (randomWat() + "?cb=" + s[i].i); // riking: move random images to clientside
 							td1.appendChild(img);
 							tr.appendChild(td1);
@@ -3396,6 +3399,7 @@
 								td1.style.verticalAlign = "top";
 								var img = new Image();
 								img.classList.add("cellicon");
+								// TODO - load from warc...?
 								img.src = m.u[msi.f].o || (randomWat() + "?cb=" + msi.i); // riking: move random images to clientside
 								td1.appendChild(img);
 								tr.appendChild(td1);
@@ -4419,7 +4423,7 @@
 							} else if(output == "Bread") {
 								setTimeout(function() {
 									var bread = new Image();
-									bread.src = "/images/bread.png";
+									bread.src = GLOBAL_ASSET_BASEURL + "/assets/bread.png"; // riking: global assets
 									MSPFA.dialog("Bread", bread, []);
 								});
 							} else if(output == "Delete") {
@@ -4553,6 +4557,7 @@
 								var imglink = document.createElement("a");
 								var img = new Image();
 								img.classList.add("cellicon");
+								// TODO - archive comments incl. user avatars
 								img.src = c.u[c.c[i].u].o || (randomWat() + "?cb=" + c.c[i].d); // riking: move random images to clientside
 								imglink.appendChild(img);
 								ctd1.appendChild(imglink);
@@ -4830,6 +4835,7 @@
 						imgl.href = "view.html?s=" + s[i].i + "&p=1"; // riking: relative queries
 						var img = new Image();
 						img.classList.add("cellicon");
+						// TODO - multi-story view
 						img.src = s[i].o || (randomWat() + "?cb=" + s[i].i); // riking: move random images to clientside
 						img.title = img.alt = s[i].n;
 						imgl.appendChild(img);
@@ -4846,6 +4852,7 @@
 						imgl.href = "/achievements/?u=" + user.i;
 						var img = new Image();
 						img.classList.add("cellicon");
+						// TODO - ...achievements?
 						img.src = "/images/achievements/" + i + ".png";
 						img.title = img.alt = achievements[i][0];
 						imgl.appendChild(img);
@@ -5073,6 +5080,7 @@
 				var td1 = document.createElement("td");
 				var img = new Image();
 				img.classList.add("cellicon");
+				// TODO - achievements...?
 				img.src = "/images/achievements/" + i + ".png";
 				td1.appendChild(img);
 				tr.appendChild(td1);
