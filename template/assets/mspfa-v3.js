@@ -4027,6 +4027,12 @@
 						imgs[i].classList.add("major");
 						imgs[i].addEventListener("load", loadImg);
 						imgs[i].addEventListener("error", loadImg);
+						// [BEGIN] riking: flag erroring images
+						imgs[i].addEventListener("error", function(evt) {
+							var el = this;
+							el.classList.add("failed");
+						});
+						// [END]
 					}
 					if(location.pathname != "/preview/") {
 						// riking: slinkSlide changes URLs to web-archive URLs

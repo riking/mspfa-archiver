@@ -534,3 +534,9 @@ riking: don't download vote images
     background-image: url("/images/downvote.png");
 }
 */
+/* riking: flag failing images */
+.failed {
+	min-width: 100px;
+	min-height: 100px;
+	background-color: #c33;
+}
