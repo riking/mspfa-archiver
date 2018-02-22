@@ -4,3 +4,6 @@
 /mspfa-archiver
 /target/
 /vendor/github.com/glenn-brown/golang-pkg-pcre/src/pkg/pcre/cflags.go
+
+.DS_Store
+._*
