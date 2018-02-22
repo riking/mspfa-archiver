@@ -737,6 +737,10 @@ func buildResourceList(urlChan chan Rsc) map[Rsc]struct{} {
 		u = mspfaBaseURL.ResolveReference(u)
 		resource.U = u.String()
 		if resource.Type == tLink {
+			if strings.HasSuffix(resource.U, ".swf") {
+				// Make sure to download linked flash files
+				resource.Type = tSrc
+			}
 			for _, videoStr := range videoURLs {
 				if strings.Contains(resource.U, videoStr) {
 					resource.Type = tVideo

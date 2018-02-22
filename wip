@@ -39,3 +39,5 @@
 104: suspended webhost
 106: dead domain
 108: imagebin 404
+109: partial 404, partial dns failure
+111: imageshack 404

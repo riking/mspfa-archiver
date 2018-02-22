@@ -641,7 +641,7 @@ func iterateFolder(dir, relPath string, cb func(file, relPath string) error) err
 		}
 
 		for _, name := range names {
-			if strings.HasPrefix("._", name) && true /* is_darwin */ {
+			if strings.HasPrefix(name, "._") && true /* is_darwin */ {
 				continue
 			} else if name == ".DS_Store" {
 				continue
