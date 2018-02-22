@@ -212,6 +212,13 @@
 		var cdxData = cdxIndex[url];
 		if (!cdxData) {
 			// TODO photobucket images need to get saved in WARC
+			if (cdxPending.length > 0) {
+				setTimeout(function() {
+					var cb = cdxPending.pop();
+					if (cb)
+						cb();
+				}, 1);
+			}
 			return Promise.resolve(toArchiveURL("resource", url));
 		}
 		var headers = new Headers();
@@ -585,13 +592,12 @@
 						// [BEGIN] riking: Change resource URLs to archive links
 						if (es[i].attributes[j].name == "src") {
 							var val = es[i].attributes[j].value;
-							es[i].setAttribute(es[i].attributes[j].name, "");
+							es[i].setAttribute('src', "");
 							(function(el, attrName, attrValue) {
 								resourceToBlob(attrValue).then(function(blobURL) {
-									el.src = blobURL;
-									//el.setAttribute(attrName, blobURL);
+									el.setAttribute(attrName, blobURL);
 								});
-							})(es[i], es[i].attributes[j].name, es[i].attributes[j].value);
+							})(es[i], 'src', val);
 						}
 						// [END]
 					}
