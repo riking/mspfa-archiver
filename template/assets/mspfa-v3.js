@@ -42,10 +42,15 @@
 		var choice = Math.floor(Math.random() * 4);
 		return GLOBAL_ASSET_BASE + "/assets/wat/wat.njs." + choice;
 	}
-	function getIcon(story, watCB) {
-		if (story.o)
-			return toArchiveURL("resource", story.o);
-		return randomWat() + watCB;
+	function setIconSrc(el, story, watCB) {
+		if (story.o) {
+			el.src = "";
+			resourceToBlob(story.o).then(function(blobURL) {
+				el.src = blobURL;
+			});
+		} else {
+			el.src = randomWat() + watCB;
+		}
 	}
 
 	// WARC extraction
@@ -557,7 +562,13 @@
 					}
 					// [BEGIN] riking: Change resource URLs to archive links
 				} else if (es[i].tagName == "OBJECT") {
-					es[i].data = toArchiveURL("resource", es[i].data);
+					(function(el, attrName, attrValue) {
+						resourceToBlob(attrValue).then(function(blobURL) {
+							el.data = blobURL;
+							//el.setAttribute(attrName, blobURL);
+						});
+					})(es[i], 'data', es[i].data);
+					es[i].data = "";
 				} else if (es[i].tagName == "A") {
 					if (/youtube\.com\/watch/.test(es[i].href) || /youtu\.be/.test(es[i].href)) {
 						console.log("YouTube URL to convert:", es[i]);
@@ -1542,7 +1553,7 @@
 		imga.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 		var img = new Image();
 		img.classList.add("cellicon");
-		img.src = getIcon(story, "?cb=" + story.i); // riking: use archived files for icons
+		setIconSrc(img, story, "?cb=" + story.i); // riking: use archived files for icons
 		imga.appendChild(img);
 		td1.appendChild(imga);
 		tr.appendChild(td1);
@@ -3698,7 +3709,7 @@
 			s.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
 			var icon = new Image();
 			icon.width = icon.height = 150;
-			icon.src = getIcon(story, "?cb=" + story.i); // riking: use archived files for icons
+			setIconSrc(icon, story, "?cb=" + story.i); // riking: use archived files for icons
 			s.appendChild(icon);
 			s.appendChild(document.createElement("br"));
 			var name = document.createElement("span");
@@ -4182,7 +4193,7 @@
 				var icon = new Image();
 				icon.id = "storyicon";
 				icon.width = icon.height = 150;
-				icon.src = getIcon(MSPFA.story, "?cb=" + MSPFA.story.i); // riking: use archived files for icons
+				setIconSrc(icon, MSPFA.story, "?cb=" + MSPFA.story.i); // riking: use archived files for icons
 				icon.style.marginRight = "6px";
 				td1.appendChild(icon);
 				tr1.appendChild(td1);
