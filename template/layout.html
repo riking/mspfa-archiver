@@ -77,8 +77,8 @@
         <div></div>
     </form>
     <div id="loading"></div>
-    <script src="https://archive.org/download/mspfa-archive-assets/assets/pako_inflate.min.js"></script>
-    <script src="https://archive.org/download/mspfa-archive-assets/assets/mspfa-v3.js"></script>
+    <script src="{{if not .Conf.LocalScript}}https://archive.org/download/mspfa-archive-assets/{{end}}assets/pako_inflate.min.js"></script>
+    <script src="{{if not .Conf.LocalScript}}https://archive.org/download/mspfa-archive-assets/{{end}}assets/mspfa-v3.js"></script>
 </body>
 </html>
 

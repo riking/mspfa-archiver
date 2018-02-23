@@ -8,6 +8,36 @@
 	}
 	var defaultStoryID = htmlConfig.dataset.defaultStoryId;
 
+	/**
+	 * Promise.prototype.finally
+	 *
+	 * Pulled from https://github.com/domenic/promises-unwrapping/issues/18#issuecomment-57801572
+	 * @author @stefanpenner, @matthew-andrews
+	 */
+	(function() {
+		if (typeof window.Promise.prototype['finally'] === 'function')
+			return;
+
+		window.Promise.prototype['finally'] = function finallyPolyfill(callback) {
+			var constructor = this.constructor;
+
+			return this.then(function(value) {
+					return constructor.resolve(callback()).then(function() {
+						return value;
+					});
+				}, function(reason) {
+					return constructor.resolve(callback()).then(function() {
+						throw reason;
+					});
+				});
+		};
+	}());
+	var promiseSleep = function(t) {
+		return new Promise(function(resolve, reject) {
+			setTimeout(resolve, t);
+		});
+	}
+
 	// Change 404 handling
 	var adv404 = function() {
 		MSPFA.dialog("Error", document.createTextNode("Something's missing! Perhaps the story was not archived properly?"), ["Well that sucks"]);
@@ -30,6 +60,7 @@
 			return "https://web.archive.org/web/" + u.href;
 		}
 	};
+
 	// move random images to clientside
 	(function() {
 		var choice = Math.floor(Math.random() * 80);
@@ -42,6 +73,7 @@
 		var choice = Math.floor(Math.random() * 4);
 		return GLOBAL_ASSET_BASE + "/assets/wat/wat.njs." + choice;
 	}
+
 	function setIconSrc(el, story, watCB) {
 		if (story.o) {
 			el.src = "";
@@ -82,12 +114,6 @@
 		return reader.read().then(decodeSome);
 	}
 
-	var promiseSleep = function(t) {
-		return new Promise(function(resolve, reject) {
-			setTimeout(resolve, t);
-		});
-	}
-
 	var cdxIndex = {};
 	var cdxPending = [];
 	var cdxReady = false;
@@ -98,7 +124,8 @@
 		loading.classList.add('active');
 		return fetch(path).then(function(response) {
 			if (response.status !== 200) {
-				throw {msg: "Bad response code for CDX file", resp: response};
+				console.warn(response);
+				throw "Bad response code for CDX file";
 			}
 			return decompressGZIP(response);
 		}).then(function(inflator) {
@@ -165,18 +192,11 @@
 			};
 			return promiseSleep(0).then(nextLine);
 		}).then(function() {
-			loading.classList.remove('active');
-			cdxReady = true;
-
 			// call waiting items
+			cdxReady = true;
 			var callbacks = cdxPending.slice(0);
 			cdxPending = [];
 			callbacks.forEach(function(cb) { cb(); });
-
-			requests--;
-			if (!requests) {
-				loading.classList.remove("active");
-			}
 		}).catch(function(err) {
 			console.error(err);
 			var span = document.createElement("span");
@@ -185,15 +205,29 @@
 			pre.innerText = err;
 			span.appendChild(document.createElement("br"));
 			span.appendChild(pre);
+			span.appendChild(document.createElement("br"));
+			span.appendChild(document.createTextNode("The archival view is likely broken. Please refresh and/or inspect the error"));
 			MSPFA.dialog("Error", span, ["Ok"]);
-
+		}).finally(function() {
 			requests--;
 			if (!requests) {
 				loading.classList.remove("active");
 			}
 		});
 	}
-	setTimeout(function() {loadCDX("./resources.warc.os.cdx.gz")}, 0);
+	promiseSleep(0).then(function() {loadCDX("./resources.warc.os.cdx.gz")});
+
+	// Chrome bug - only one Range: request allowed at once
+	// https://bugs.chromium.org/p/chromium/issues/detail?id=770694
+	function cdxPendingPop() {
+		if (cdxPending.length > 0) {
+			setTimeout(function() {
+				var cb = cdxPending.pop();
+				if (cb)
+					cb();
+			}, 1);
+		}
+	}
 
 	// Takes a resource URL, and loads it from the WARC archive.
 	// @return Promise<String>
@@ -212,18 +246,12 @@
 		var cdxData = cdxIndex[url];
 		if (!cdxData) {
 			// TODO photobucket images need to get saved in WARC
-			if (cdxPending.length > 0) {
-				setTimeout(function() {
-					var cb = cdxPending.pop();
-					if (cb)
-						cb();
-				}, 1);
-			}
+			cdxPendingPop();
 			return Promise.resolve(toArchiveURL("resource", url));
 		}
 		var headers = new Headers();
 		headers.set('Range', 'bytes=' + cdxData.cOffset + '-' + (cdxData.cOffset + cdxData.cSize - 1));
-		warcReqPending = true; // chrome bug
+		warcReqPending = true; // chrome bug 770694
 		requests++;
 		loading.classList.add("active");
 		// TODO - use cdx.filename to have multiple WARCs
@@ -233,23 +261,19 @@
 			}
 			return decompressGZIP(response);
 		}).then(function(inflator) {
-			// Chrome bug - only one Range: request allowed at once
-			// https://bugs.chromium.org/p/chromium/issues/detail?id=770694
 			warcReqPending = false;
-			if (cdxPending.length > 0) {
-				setTimeout(function() {
-					var cb = cdxPending.pop();
-					if (cb)
-						cb();
-				}, 1);
-			}
+			cdxPendingPop();
 
 			// inflator.result is a WARC result
 			// need to advance to the content
 			// EDIT: lol need to parse the headers to check for 3xx redirects
 			var warcResult = inflator.result;
 			var warcHeaders = new Headers();
+			var warcProtocolString;
 			var httpHeaders = new Headers();
+			var httpProtocolString;
+			var httpStatusCode;
+			var httpStatusText;
 			var contentStart = -2;
 			var headerMode = 0;
 			var lastNewline = 0;
@@ -285,13 +309,13 @@
 					headerMode = 1;
 					var spaceIdx = headerText.indexOf(" ");
 					if (spaceIdx === -1) {
-						targetHeaderObject.set(":protocol", headerText);
+						warcProtocolString = headerText;
 						return;
 					} else {
-						targetHeaderObject.set(":protocol", headerText.slice(0, spaceIdx));
+						httpProtocolString = headerText.slice(0, spaceIdx);
 						var codeSpaceIdx = headerText.indexOf(" ", spaceIdx + 1);
-						targetHeaderObject.set(":code", headerText.slice(spaceIdx + 1, codeSpaceIdx));
-						targetHeaderObject.set(":status", headerText.slice(codeSpaceIdx));
+						httpStatusCode = (headerText.slice(spaceIdx + 1, codeSpaceIdx));
+						httpStatusText = (headerText.slice(codeSpaceIdx));
 						return;
 					}
 				} else {
@@ -302,7 +326,7 @@
 				}
 			};
 			warcResult.find(function(element, index, array) {
-				if (!(element === 13 && array[index+1] === 10)) { // '\r\n'
+				if (!(element === 13 && array[index+1] === 10 && index >= lastNewline)) { // '\r\n'
 					return;
 				}
 				if (!(array[index+2] === 13 && array[index+3] === 10)) {
@@ -319,6 +343,7 @@
 						flushContinuations();
 						contentStart = -1;
 						headerMode = 0;
+						lastNewline = index + 4;
 						return;
 					} else {
 						// end of HTTP headers, start of HTTP content
@@ -328,17 +353,25 @@
 					}
 				}
 			});
+			// check for 302
 			if (contentStart < 0) {
 				throw "could not find end of WARC headers";
 			}
-			requests--;
-			if (!requests) {
-				loading.classList.remove("active");
+			var respStatus = parseInt(httpStatusCode);
+			if (respStatus >= 300 && respStatus < 400) {
+				var target = httpHeaders.get("Location");
+				if (target) {
+					return resourceToBlob(target);
+				}
 			}
+			// return result
 			var blob = new Blob([inflator.result.slice(contentStart)], {type: cdxData.mime});
 			return URL.createObjectURL(blob) + "#" + url;
 		}).catch(function(err) {
 			console.error(err);
+			warcReqPending = false;
+			cdxPendingPop();
+
 			var span = document.createElement("span");
 			span.appendChild(document.createTextNode("An error occurred while loading the resource " + url + ":"));
 			var pre = document.createElement("pre");
@@ -346,7 +379,7 @@
 			span.appendChild(document.createElement("br"));
 			span.appendChild(pre);
 			MSPFA.dialog("Error", span, ["Ok"]);
-
+		}).finally(function() {
 			requests--;
 			if (!requests) {
 				loading.classList.remove("active");
@@ -706,6 +739,12 @@
 			return e;
 		}
 	};
+	// [BEGIN] riking: stash globals
+
+	MSPFA.cdxIndex = cdxIndex;
+	MSPFA.cdxPending = cdxPending;
+
+	// [END]
 	var errorBlacklist = [
 		"SecurityError",
 		"QuotaExceededError",

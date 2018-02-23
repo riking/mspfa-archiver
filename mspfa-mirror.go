@@ -100,6 +100,7 @@ type OutputConf struct {
 	IsArchiveOrg bool
 	IAIdentifier string
 	footerImages string
+	LocalScript  bool
 }
 
 type RscType int
@@ -132,6 +133,7 @@ func (a advDir) File(name string) string {
 var (
 	iaIdentifier   = flag.String("ident", "", "Internet Archive item identifier. See also -test")
 	testIA         = flag.Bool("test", false, "Flag IA uploads with test_collection")
+	localScripts   = flag.Bool("devScript", false, "use local copies of mspfa.js instead of archive.org copies")
 	forceUpload    = flag.Bool("fu", false, "Force IA upload despite download errors")
 	fixMetadata    = flag.Bool("fixmeta", false, "Override existing IA item metadata")
 	forceAdvUpdate = flag.Bool("f", false, "Force update of story .json")
@@ -779,6 +781,7 @@ func archiveStory(story *StoryJSON, dir advDir) error {
 	story.Conf = new(OutputConf)
 	story.Conf.IsArchiveOrg = *iaIdentifier != ""
 	story.Conf.IAIdentifier = *iaIdentifier
+	story.Conf.LocalScript = *localScripts
 
 	urlChan := make(chan Rsc)
 	var scanErr error
