@@ -99,7 +99,7 @@
 				reader = null;
 				return Promise.resolve(inflator).then(function(inflator) {
 					if (inflator.err) {
-						throw "Gzip decode error: " + inflator.err + ": " + inflator.msg;
+						throw "Gzip decode error " + inflator.err + ": " + inflator.msg;
 					}
 					return inflator;
 				});
@@ -119,7 +119,8 @@
 	var cdxReady = false;
 	var warcReqPending = false;
 	// load the CDX file
-	function loadCDX(path) {
+	function loadCDX(path, opts) {
+		opts = opts || {};
 		requests++;
 		loading.classList.add('active');
 		return fetch(path).then(function(response) {
@@ -127,47 +128,42 @@
 				console.warn(response);
 				throw "Bad response code for CDX file";
 			}
-			return decompressGZIP(response);
+			if (opts.gzip) {
+				return decompressGZIP(response);
+			} else {
+				return response.arrayBuffer().then(function(buf) {
+					return { result: new Uint8Array(buf) };
+				});
+			}
 		}).then(function(inflator) {
+			var propMap = [];
 			var cdxType = -1;
 			var processLine = function(line) {
 				if (/^ CDX/.test(line)) {
 					// header
 					if (line === " CDX N b a m s k r M S V g\n") {
 						cdxType = 1;
-						// fields:
-						// massaged URL
-						// date
-						// original URL
-						// MIME type of original document
-						// response code
-						// new-style checksum
-						// redirect
-						// meta tags
-						// compressed record size
-						// compressed arc file offset
-						// file name
+						propMap = ["murl", "date", "ourl", "mime", "code", "chksum", "redirect", "meta_aif", "cSize", "cOffset", "warcfile"];
 						return;
+					} else if (line === " CDX a b m s k S V g u\n") {
+						cdxType = 2;
+						propMap = ["ourl", "date", "mime", "code", "chksum", "cSize", "cOffset", "warcfile", "uuid"];
 					} else {
 						throw "Unexpected CDX header, please fix the script";
 					}
 				}
 				var split = line.split(' ');
-				var massageURL = split[0];
-				var origURL = split[2];
-				var mime = split[3];
-				var code = split[4];
-				var cSize = parseInt(split[8]);
-				var cOffset = parseInt(split[9]);
-				var obj = {
-					url: origURL,
-					mime: mime,
-					rCode: code,
-					cSize: cSize,
-					cOffset: cOffset,
-				};
-				cdxIndex[massageURL] = obj;
-				cdxIndex[origURL] = obj;
+				var obj = {};
+				for (var i = 0; i < propMap.length; i++) {
+					if (propMap[i] == "cSize" || propMap[i] == "cOffset") {
+						obj[propMap[i]] = parseInt(split[i]);
+					} else {
+						obj[propMap[i]] = split[i];
+					}
+				}
+				if (obj.ourl) {
+					cdxIndex[obj.ourl] = obj;
+				}
 			};
 			var textdec = new TextDecoder('utf-8');
 			var nextNewlineIdx = function(ary, curIdx) {
@@ -194,11 +190,15 @@
 		}).then(function() {
 			// call waiting items
 			cdxReady = true;
+			console.log("Loaded CDX", path);
 			var callbacks = cdxPending.slice(0);
 			cdxPending = [];
 			callbacks.forEach(function(cb) { cb(); });
 		}).catch(function(err) {
-			console.error(err);
+			console.error("cdx error", path, err);
+			if (opts.softfail) {
+				throw err;
+			}
 			var span = document.createElement("span");
 			span.appendChild(document.createTextNode("An error occurred while loading the resource index:"));
 			var pre = document.createElement("pre");
@@ -215,7 +215,8 @@
 			}
 		});
 	}
-	promiseSleep(0).then(function() {loadCDX("./resources.warc.os.cdx.gz")});
+	promiseSleep(0).then(function() {loadCDX("./resources.warc.os.cdx.gz", {gzip: true, softfail: true})});
+	promiseSleep(0).then(function() {loadCDX("./resources.cdx")});
 
 	// Chrome bug - only one Range: request allowed at once
 	// https://bugs.chromium.org/p/chromium/issues/detail?id=770694
