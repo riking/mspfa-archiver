@@ -465,7 +465,7 @@ var uploadFileList = [...]string{
 	"log.html", "search.html", "view.html",
 	"urls.txt", "links.txt", "videos.txt",
 	"linked", "videos", "users", "story",
-	"resources.warc.gz",
+	"resources.cdx", "resources.warc.gz",
 }
 
 var tmplDescription = template.Must(template.New("ia-description").Parse(

@@ -410,15 +410,15 @@
 		[/\[background=("?)([^";]+?)\1\]((?:(?!\[background(?:=[^;]*?)\]).)*?)\[\/background\]/gi, "<span style=\"background-color: $2;\">$3</span>"],
 		[/\[font=("?)([^";]*?)\1\]((?:(?!\[size(?:=[^;]*?)\]).)*?)\[\/font\]/gi, "<span style=\"font-family: $2;\">$3</span>"],
 		[/\[(center|left|right|justify)\]((?:(?!\[\1\]).)*?)\[\/\1\]/gi, "<div style=\"text-align: $1;\">$2</div>"],
-		[/\[url\]([^"]*?)\[\/url\]/gi, "<a href=\"$1\">$1</a>", 1],
-		[/\[url=("?)([^"]*?)\1\]((?:(?!\[url(?:=.*?)\]).)*?)\[\/url\]/gi, "<a href=\"$2\">$3</a>", 1],
+		[/\[url\]([^"]*?)\[\/url\]/gi, "<a href=\"$1\">$1</a>", 1], // riking: flag urls to rewrite
+		[/\[url=("?)([^"]*?)\1\]((?:(?!\[url(?:=.*?)\]).)*?)\[\/url\]/gi, "<a href=\"$2\">$3</a>", 1], // riking: flag urls to rewrite
 		[/\[alt=("?)([^"]*?)\1\]((?:(?!\[alt(?:=.*?)\]).)*?)\[\/alt\]/gi, "<span title=\"$2\">$3</span>"],
-		[/\[img\]([^"]*?)\[\/img\]/gi, "<img src=\"$1\">", 2],
-		[/\[img=(\d*?)x(\d*?)\]([^"]*?)\[\/img\]/gi, "<img src=\"$3\" width=\"$1\" height=\"$2\">", 2],
+		[/\[img\]([^"]*?)\[\/img\]/gi, "<img src=\"$1\">", 2], // riking: flag urls to rewrite
+		[/\[img=(\d*?)x(\d*?)\]([^"]*?)\[\/img\]/gi, "<img src=\"$3\" width=\"$1\" height=\"$2\">", 2], // rikin: flag urls to rewrite
 		[/\[spoiler\]((?:(?!\[spoiler(?: .*?)?\]).)*?)\[\/spoiler\]/gi, "<div class=\"spoiler closed\"><div style=\"text-align: center;\"><input type=\"button\" value=\"Show\" data-close=\"Hide\" data-open=\"Show\"></div><div>$1</div></div>"],
 		[/\[spoiler open=("?)([^"]*?)\1 close=("?)([^"]*?)\3\]((?:(?!\[spoiler(?: .*?)?\]).)*?)\[\/spoiler\]/gi, "<div class=\"spoiler closed\"><div style=\"text-align: center;\"><input type=\"button\" value=\"$2\" data-open=\"$2\" data-close=\"$4\"></div><div>$5</div></div>"],
 		[/\[spoiler close=("?)([^"]*?)\1 open=("?)([^"]*?)\3\]((?:(?!\[spoiler(?: .*?)?\]).)*?)\[\/spoiler\]/gi, "<div class=\"spoiler closed\"><div style=\"text-align: center;\"><input type=\"button\" value=\"$4\" data-open=\"$4\" data-close=\"$2\"></div><div>$5</div></div>"],
-		[/\[flash=(\d*?)x(\d*?)\](.*?)\[\/flash\]/gi, "<object type=\"application/x-shockwave-flash\" data=\"$3\" width=\"$1\" height=\"$2\"></object>", 2],
+		[/\[flash=(\d*?)x(\d*?)\](.*?)\[\/flash\]/gi, "<object type=\"application/x-shockwave-flash\" data=\"$3\" width=\"$1\" height=\"$2\"></object>", 2], // riking: flag urls to rewrite
 		[/\[user\](.+?)\[\/user\]/gi, "<a class=\"usertag\" href=\"/user/?u=$1\" data-userid=\"$1\">@...</a>"]
 	];
 	var toggleSpoiler = function() {
@@ -626,8 +626,7 @@
 			t: 0
 		},
 		slide: [],
-		parseBBCode: function(code, noHTML, opts) {
-			opts = opts || {};
+		parseBBCode: function(code, noHTML) {
 			if(noHTML) {
 				code = [code.replace(/</g, "&lt;").replace(/>/g, "&gt;")];
 			} else {
@@ -1976,7 +1975,6 @@
 							var td1 = document.createElement("td");
 							var img = new Image();
 							img.classList.add("cellicon");
-							// TODO - load from warc...?
 							img.src = s[i].o || (randomWat() + "?cb=" + s[i].i); // riking: move random images to clientside
 							td1.appendChild(img);
 							tr.appendChild(td1);
@@ -2133,7 +2131,7 @@
 					}
 				});
 				document.querySelector("#bannertip").addEventListener("click", function() {
-					MSPFA.dialog("Info", document.createTextNode("This image should be 940x90 and will be displayed on the top of the homepage for one week on and after the anniversary of your adventure if the adventure is ongoing and has 100 favorites or more."), ["Okay"]);
+					MSPFA.dialog("Info", document.createTextNode("This image should be 940x90 and will be displayed on the top of the homepage for one week on and after the anniversary of your adventure if the adventure is ongoing and has 200 favorites or more."), ["Okay"]);
 				});
 				document.querySelector("#jstip").addEventListener("click", function() {
 					var msg = document.createElement("span");
@@ -3887,14 +3885,14 @@
 		var arrow = document.createElement("input");
 		arrow.setAttribute("type", "button");
 		arrow.classList.add("arrow");
-		var req = {/*
+		var req = {
 			"Recently Updated": {
 				n: "",
 				t: "",
 				p: "p",
 				o: "updated",
 				h: 14
-			},*/
+			},
 			"Top Ongoing Favorites": {
 				n: "",
 				t: "",
@@ -4234,16 +4232,17 @@
 				for(var i = 0; i < imports.length; i++) {
 					if(registeredImports.indexOf(imports[i] == -1)) {
 						try {
-							cssString.replace(imports[i], toArchiveURL("resource", imports[i]));
 							registeredImports.push(imports[i]);
-							var req = new XMLHttpRequest();
-							req.open("GET", toArchiveURL("resource", imports[i]), true);
-							req.onreadystatechange = function() {
-								if(req.readyState == XMLHttpRequest.DONE && req.status == 200 && req.responseText) {
-									registerPageRanges(req.responseText, true);
-								}
-							};
-							req.send();
+							// [BEGIN] riking: load CSS from archive
+							resourceToBlob(imports[i], {returnText: true}).then(function(blobURL) {
+								return fetch(blobURL);
+							}).then(function(response) {
+								return response.text();
+							}).then(function(contentText) {
+								registerPageRanges(contentText, true);
+							}).catch(function(err) {
+							});
+							// [END]
 						} catch(err) {}
 					}
 				}
