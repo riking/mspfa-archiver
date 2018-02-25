@@ -431,7 +431,7 @@ func runUploadJob(ctx context.Context, jobG *uploadJobGlobal, dir advDir, fileLi
 		for job := range jobs {
 			<-limitCh
 			uploadFileProcs.Add(1)
-			job.ctx, _ = context.WithTimeout(ctx, 2*time.Minute)
+			job.ctx, _ = context.WithTimeout(ctx, 10*time.Minute)
 
 			go uploadFile(job, &uploadFileProcs)
 			dispatchedTasks++

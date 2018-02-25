@@ -162,7 +162,7 @@
 					}
 				}
 				if (obj.ourl) {
-					cdxIndex[obj.ourl] = obj;
+					cdxIndex[obj.ourl] = cdxIndex[obj.ourl] || obj;
 				}
 			};
 			var textdec = new TextDecoder('utf-8');
