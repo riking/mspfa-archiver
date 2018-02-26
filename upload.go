@@ -431,7 +431,7 @@ func runUploadJob(ctx context.Context, jobG *uploadJobGlobal, dir advDir, fileLi
 		for job := range jobs {
 			<-limitCh
 			uploadFileProcs.Add(1)
-			job.ctx, _ = context.WithTimeout(ctx, 2*time.Minute)
+			job.ctx, _ = context.WithTimeout(ctx, 10*time.Minute)
 
 			go uploadFile(job, &uploadFileProcs)
 			dispatchedTasks++
@@ -465,7 +465,7 @@ var uploadFileList = [...]string{
 	"log.html", "search.html", "view.html",
 	"urls.txt", "links.txt", "videos.txt",
 	"linked", "videos", "users", "story",
-	"resources.warc.gz",
+	"resources.cdx", "resources.warc.gz",
 }
 
 var tmplDescription = template.Must(template.New("ia-description").Parse(

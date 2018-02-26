@@ -1,399 +1,4 @@
 (function() {
-	// [BEGIN] riking: Globals
-	var htmlConfig = document.getElementById('msconfig');
-
-	var GLOBAL_ASSET_BASE = "https://archive.org/download/mspfa-archive-assets";
-	if (!htmlConfig.dataset.rewriteUrls) {
-		GLOBAL_ASSET_BASE = "https://mspfa.com/";
-	}
-	var defaultStoryID = htmlConfig.dataset.defaultStoryId;
-
-	/**
-	 * Promise.prototype.finally
-	 *
-	 * Pulled from https://github.com/domenic/promises-unwrapping/issues/18#issuecomment-57801572
-	 * @author @stefanpenner, @matthew-andrews
-	 */
-	(function() {
-		if (typeof window.Promise.prototype['finally'] === 'function')
-			return;
-
-		window.Promise.prototype['finally'] = function finallyPolyfill(callback) {
-			var constructor = this.constructor;
-
-			return this.then(function(value) {
-					return constructor.resolve(callback()).then(function() {
-						return value;
-					});
-				}, function(reason) {
-					return constructor.resolve(callback()).then(function() {
-						throw reason;
-					});
-				});
-		};
-	}());
-	var promiseSleep = function(t) {
-		return new Promise(function(resolve, reject) {
-			setTimeout(resolve, t);
-		});
-	}
-
-	// Change 404 handling
-	var adv404 = function() {
-		MSPFA.dialog("Error", document.createTextNode("Something's missing! Perhaps the story was not archived properly?"), ["Well that sucks"]);
-		console.error("404 error");
-	};
-	// Change resource URLs to archive links
-	var toArchiveURL = function(type, up) {
-		if (!htmlConfig.dataset.rewriteUrls) {
-			// This is a live site, not an archive site
-			return up;
-		}
-		var u = new URL(up, "https://mspfa.com");
-		if (/archive.org$/.test(u.host)) {
-			// already edited
-			return up;
-		}
-		if (type === "resource") {
-			return "./linked/" + encodeURIComponent(u.host) + encodeURIComponent(u.pathname).replace(/%2F/g, "/").replace(/%25([0-9A-F][0-9A-F])/g, "%$1") + encodeURIComponent(u.search);
-		} else if (type === "web") {
-			return "https://web.archive.org/web/" + u.href;
-		}
-	};
-
-	// move random images to clientside
-	(function() {
-		var choice = Math.floor(Math.random() * 80);
-		// BUG(1): This must be a style element, not inline styles, for specificity to work properly
-		var styleEl = document.createElement('style');
-		styleEl.innerHTML = "footer .mspfalogo {\nbackground-image: url(\"" + GLOBAL_ASSET_BASE + "/assets/random/random.njs." + choice + "\"); }";
-		document.head.appendChild(styleEl);
-	})();
-	function randomWat() {
-		var choice = Math.floor(Math.random() * 4);
-		return GLOBAL_ASSET_BASE + "/assets/wat/wat.njs." + choice;
-	}
-
-	function setIconSrc(el, story, watCB) {
-		if (story.o) {
-			el.src = "";
-			resourceToBlob(story.o).then(function(blobURL) {
-				el.src = blobURL;
-			});
-		} else {
-			el.src = randomWat() + watCB;
-		}
-	}
-
-	// WARC extraction
-
-	// @param Response
-	// @return Promise<pako.Inflate>
-	function decompressGZIP(response, expectedSize) {
-		var inflator = new pako.Inflate();
-		var reader = response.body.getReader();
-		var runningLength = 0;
-		var decodeSome = function(chunk) {
-			if (chunk.done) {
-				inflator.push([], true);
-				reader = null;
-				return Promise.resolve(inflator).then(function(inflator) {
-					if (inflator.err) {
-						throw "Gzip decode error " + inflator.err + ": " + inflator.msg;
-					}
-					return inflator;
-				});
-			}
-			runningLength += chunk.value.length;
-			if (expectedSize && (runningLength > expectedSize)) {
-				console.warn("going past expected compressed size", runningLength, response);
-			}
-			inflator.push(chunk.value);
-			return reader.read().then(decodeSome);
-		};
-		return reader.read().then(decodeSome);
-	}
-
-	var cdxIndex = {};
-	var cdxPending = [];
-	var cdxReady = false;
-	var warcReqPending = false;
-	// load the CDX file
-	function loadCDX(path, opts) {
-		opts = opts || {};
-		requests++;
-		loading.classList.add('active');
-		return fetch(path).then(function(response) {
-			if (response.status !== 200) {
-				console.warn(response);
-				throw "Bad response code for CDX file";
-			}
-			if (opts.gzip) {
-				return decompressGZIP(response);
-			} else {
-				return response.arrayBuffer().then(function(buf) {
-					return { result: new Uint8Array(buf) };
-				});
-			}
-		}).then(function(inflator) {
-			var propMap = [];
-			var cdxType = -1;
-			var processLine = function(line) {
-				if (/^ CDX/.test(line)) {
-					// header
-					if (line === " CDX N b a m s k r M S V g\n") {
-						cdxType = 1;
-						propMap = ["murl", "date", "ourl", "mime", "code", "chksum", "redirect", "meta_aif", "cSize", "cOffset", "warcfile"];
-						return;
-					} else if (line === " CDX a b m s k S V g u\n") {
-						cdxType = 2;
-						propMap = ["ourl", "date", "mime", "code", "chksum", "cSize", "cOffset", "warcfile", "uuid"];
-					} else {
-						throw "Unexpected CDX header, please fix the script";
-					}
-				}
-				var split = line.split(' ');
-				var obj = {};
-				for (var i = 0; i < propMap.length; i++) {
-					if (propMap[i] == "cSize" || propMap[i] == "cOffset") {
-						obj[propMap[i]] = parseInt(split[i]);
-					} else {
-						obj[propMap[i]] = split[i];
-					}
-				}
-				if (obj.ourl) {
-					cdxIndex[obj.ourl] = cdxIndex[obj.ourl] || obj;
-				}
-			};
-			var textdec = new TextDecoder('utf-8');
-			var nextNewlineIdx = function(ary, curIdx) {
-				return ary.slice(curIdx).findIndex(function(el, idx, ary) { return el === 10; });
-			};
-			var curIdx = 0;
-			var nextLine = function(count) {
-				var nextIdx = nextNewlineIdx(inflator.result, curIdx);
-				if (nextIdx === -1) {
-					return false;
-				}
-				nextIdx += curIdx;
-				processLine(textdec.decode(inflator.result.slice(curIdx, nextIdx+1), {stream: true}));
-				curIdx = nextIdx + 1;
-
-				if (count === -1) { return; }
-				count = 40;
-				while (count-- > 0) {
-					nextLine(-1);
-				}
-				return promiseSleep(10).then(nextLine);
-			};
-			return promiseSleep(0).then(nextLine);
-		}).then(function() {
-			// call waiting items
-			cdxReady = true;
-			console.log("Loaded CDX", path);
-			var callbacks = cdxPending.slice(0);
-			cdxPending = [];
-			callbacks.forEach(function(cb) { cb(); });
-		}).catch(function(err) {
-			console.error("cdx error", path, err);
-			if (opts.softfail) {
-				throw err;
-			}
-			var span = document.createElement("span");
-			span.appendChild(document.createTextNode("An error occurred while loading the resource index:"));
-			var pre = document.createElement("pre");
-			pre.innerText = err;
-			span.appendChild(document.createElement("br"));
-			span.appendChild(pre);
-			span.appendChild(document.createElement("br"));
-			span.appendChild(document.createTextNode("The archival view is likely broken. Please refresh and/or inspect the error"));
-			MSPFA.dialog("Error", span, ["Ok"]);
-		}).finally(function() {
-			requests--;
-			if (!requests) {
-				loading.classList.remove("active");
-			}
-		});
-	}
-	promiseSleep(0).then(function() {loadCDX("./resources.warc.os.cdx.gz", {gzip: true, softfail: true})});
-	promiseSleep(0).then(function() {loadCDX("./resources.cdx")});
-
-	// Chrome bug - only one Range: request allowed at once
-	// https://bugs.chromium.org/p/chromium/issues/detail?id=770694
-	function cdxPendingPop() {
-		if (cdxPending.length > 0) {
-			setTimeout(function() {
-				var cb = cdxPending.pop();
-				if (cb)
-					cb();
-			}, 1);
-		}
-	}
-
-	// Takes a resource URL, and loads it from the WARC archive.
-	// @return Promise<String>
-	function resourceToBlob(url) {
-		if (!cdxReady || warcReqPending) {
-			return new Promise(function(resolve, reject) {
-				if (cdxReady && !warcReqPending) {
-					resolve(resourceToBlob(url));
-					return;
-				}
-				cdxPending.push(function() {
-					resolve(resourceToBlob(url));
-				});
-			});
-		}
-		var cdxData = cdxIndex[url];
-		if (!cdxData) {
-			// TODO photobucket images need to get saved in WARC
-			cdxPendingPop();
-			return Promise.resolve(toArchiveURL("resource", url));
-		}
-		var headers = new Headers();
-		headers.set('Range', 'bytes=' + cdxData.cOffset + '-' + (cdxData.cOffset + cdxData.cSize - 1));
-		warcReqPending = true; // chrome bug 770694
-		requests++;
-		loading.classList.add("active");
-		// TODO - use cdx.filename to have multiple WARCs
-		return fetch("./resources.warc.gz", { headers: headers }).then(function(response) {
-			if (response.status !== 206) {
-				throw "Bad response status, expected 206 Partial Content";
-			}
-			return decompressGZIP(response);
-		}).then(function(inflator) {
-			warcReqPending = false;
-			cdxPendingPop();
-
-			// inflator.result is a WARC result
-			// need to advance to the content
-			// EDIT: lol need to parse the headers to check for 3xx redirects
-			var warcResult = inflator.result;
-			var warcHeaders = new Headers();
-			var warcProtocolString;
-			var httpHeaders = new Headers();
-			var httpProtocolString;
-			var httpStatusCode;
-			var httpStatusText;
-			var contentStart = -2;
-			var headerMode = 0;
-			var lastNewline = 0;
-			var pendingHeaderName = "";
-			var pendingHeaderContent = "";
-			var textDecoder = new TextDecoder('utf-8');
-			var flushContinuations = function() {
-				var targetHeaderObject;
-				if (contentStart === -2) {
-					targetHeaderObject = warcHeaders;
-				} else {
-					targetHeaderObject = httpHeaders;
-				}
-				if (pendingHeaderName !== "") {
-					targetHeaderObject.set(pendingHeaderName, pendingHeaderContent);
-					pendingHeaderName = "";
-					pendingHeaderContent = "";
-				}
-			};
-			var processHeaderLine = function(headerBytes, headerText) {
-				if (headerBytes[0] === 20 || headerBytes[0] === 9) { // space, tab
-					pendingHeaderContent += headerText.trim();
-					return;
-				}
-				var targetHeaderObject;
-				if (contentStart === -2) {
-					targetHeaderObject = warcHeaders;
-				} else {
-					targetHeaderObject = httpHeaders;
-				}
-				if (headerMode === 0) {
-					// status line
-					headerMode = 1;
-					var spaceIdx = headerText.indexOf(" ");
-					if (spaceIdx === -1) {
-						warcProtocolString = headerText;
-						return;
-					} else {
-						httpProtocolString = headerText.slice(0, spaceIdx);
-						var codeSpaceIdx = headerText.indexOf(" ", spaceIdx + 1);
-						httpStatusCode = (headerText.slice(spaceIdx + 1, codeSpaceIdx));
-						httpStatusText = (headerText.slice(codeSpaceIdx));
-						return;
-					}
-				} else {
-					flushContinuations();
-					var colonIdx = headerText.indexOf(":");
-					pendingHeaderName = headerText.slice(0, colonIdx);
-					pendingHeaderContent = headerText.slice(colonIdx+1).trim();
-				}
-			};
-			warcResult.find(function(element, index, array) {
-				if (!(element === 13 && array[index+1] === 10 && index >= lastNewline)) { // '\r\n'
-					return;
-				}
-				if (!(array[index+2] === 13 && array[index+3] === 10)) {
-					// Header
-					var headerBytes = warcResult.slice(lastNewline, index);
-					var headerText = textDecoder.decode(headerBytes);
-					processHeaderLine(headerBytes, headerText);
-					lastNewline = index + 2;
-					return;
-				} else {
-					// found \r\n\r\n
-					if (contentStart === -2) {
-						// end of WARC headers, start of HTTP headers
-						flushContinuations();
-						contentStart = -1;
-						headerMode = 0;
-						lastNewline = index + 4;
-						return;
-					} else {
-						// end of HTTP headers, start of HTTP content
-						flushContinuations();
-						contentStart = index + 4;
-						return true;
-					}
-				}
-			});
-			// check for 302
-			if (contentStart < 0) {
-				throw "could not find end of WARC headers";
-			}
-			var respStatus = parseInt(httpStatusCode);
-			if (respStatus >= 300 && respStatus < 400) {
-				var target = httpHeaders.get("Location");
-				if (target) {
-					return resourceToBlob(target);
-				}
-			}
-			var mimeType = cdxData.mime;
-			if (mimeType === "-") {
-				mimeType = httpHeaders.get('Content-Type');
-			}
-			// return result
-			var blob = new Blob([inflator.result.slice(contentStart)], {type: mimeType});
-			return URL.createObjectURL(blob) + "#" + url;
-		}).catch(function(err) {
-			console.error(err);
-			warcReqPending = false;
-			cdxPendingPop();
-
-			var span = document.createElement("span");
-			span.appendChild(document.createTextNode("An error occurred while loading the resource " + url + ":"));
-			var pre = document.createElement("pre");
-			pre.innerText = err;
-			span.appendChild(document.createElement("br"));
-			span.appendChild(pre);
-			MSPFA.dialog("Error", span, ["Ok"]);
-		}).finally(function() {
-			requests--;
-			if (!requests) {
-				loading.classList.remove("active");
-			}
-		});
-	};
-
-	// [END]
-
 	console.log("This website was programmed almost entirely by Miroware.\nhttps://miroware.io/");
 	var magic = {};
 	magic.magic = magic;
@@ -414,15 +19,15 @@
 		[/\[background=("?)([^";]+?)\1\]((?:(?!\[background(?:=[^;]*?)\]).)*?)\[\/background\]/gi, "<span style=\"background-color: $2;\">$3</span>"],
 		[/\[font=("?)([^";]*?)\1\]((?:(?!\[size(?:=[^;]*?)\]).)*?)\[\/font\]/gi, "<span style=\"font-family: $2;\">$3</span>"],
 		[/\[(center|left|right|justify)\]((?:(?!\[\1\]).)*?)\[\/\1\]/gi, "<div style=\"text-align: $1;\">$2</div>"],
-		[/\[url\]([^"]*?)\[\/url\]/gi, "<a href=\"$1\">$1</a>", 1], // riking: flag urls to rewrite
-		[/\[url=("?)([^"]*?)\1\]((?:(?!\[url(?:=.*?)\]).)*?)\[\/url\]/gi, "<a href=\"$2\">$3</a>", 1], // riking: flag urls to rewrite
+		[/\[url\]([^"]*?)\[\/url\]/gi, "<a href=\"$1\">$1</a>"],
+		[/\[url=("?)([^"]*?)\1\]((?:(?!\[url(?:=.*?)\]).)*?)\[\/url\]/gi, "<a href=\"$2\">$3</a>"],
 		[/\[alt=("?)([^"]*?)\1\]((?:(?!\[alt(?:=.*?)\]).)*?)\[\/alt\]/gi, "<span title=\"$2\">$3</span>"],
-		[/\[img\]([^"]*?)\[\/img\]/gi, "<img src=\"$1\">", 2], // riking: flag urls to rewrite
-		[/\[img=(\d*?)x(\d*?)\]([^"]*?)\[\/img\]/gi, "<img src=\"$3\" width=\"$1\" height=\"$2\">", 2], // rikin: flag urls to rewrite
+		[/\[img\]([^"]*?)\[\/img\]/gi, "<img src=\"$1\">"],
+		[/\[img=(\d*?)x(\d*?)\]([^"]*?)\[\/img\]/gi, "<img src=\"$3\" width=\"$1\" height=\"$2\">"],
 		[/\[spoiler\]((?:(?!\[spoiler(?: .*?)?\]).)*?)\[\/spoiler\]/gi, "<div class=\"spoiler closed\"><div style=\"text-align: center;\"><input type=\"button\" value=\"Show\" data-close=\"Hide\" data-open=\"Show\"></div><div>$1</div></div>"],
 		[/\[spoiler open=("?)([^"]*?)\1 close=("?)([^"]*?)\3\]((?:(?!\[spoiler(?: .*?)?\]).)*?)\[\/spoiler\]/gi, "<div class=\"spoiler closed\"><div style=\"text-align: center;\"><input type=\"button\" value=\"$2\" data-open=\"$2\" data-close=\"$4\"></div><div>$5</div></div>"],
 		[/\[spoiler close=("?)([^"]*?)\1 open=("?)([^"]*?)\3\]((?:(?!\[spoiler(?: .*?)?\]).)*?)\[\/spoiler\]/gi, "<div class=\"spoiler closed\"><div style=\"text-align: center;\"><input type=\"button\" value=\"$4\" data-open=\"$4\" data-close=\"$2\"></div><div>$5</div></div>"],
-		[/\[flash=(\d*?)x(\d*?)\](.*?)\[\/flash\]/gi, "<object type=\"application/x-shockwave-flash\" data=\"$3\" width=\"$1\" height=\"$2\"></object>", 2], // riking: flag urls to rewrite
+		[/\[flash=(\d*?)x(\d*?)\](.*?)\[\/flash\]/gi, "<object type=\"application/x-shockwave-flash\" data=\"$3\" width=\"$1\" height=\"$2\"></object>"],
 		[/\[user\](.+?)\[\/user\]/gi, "<a class=\"usertag\" href=\"/user/?u=$1\" data-userid=\"$1\">@...</a>"]
 	];
 	var toggleSpoiler = function() {
@@ -452,8 +57,6 @@
 	var requests = 0;
 	var loading = document.querySelector("#loading");
 	var box = document.querySelector("#dialog");
-	// riking: use a DOMParser document to delay image loading (thanks @SirStendec)
-	var tempDocument = (new DOMParser()).parseFromString("", "text/html");
 	window.MSPFA = {
 		import: function(src, loadCallback) {
 			var importScript = document.createElement("script");
@@ -469,33 +72,12 @@
 		request: function(auth, data, success, error, silent, retry) {
 			requests++;
 			loading.classList.add("active");
-			// [BEGIN] riking: Redirect requests to archive data
-			var req = new XMLHttpRequest();
-			switch (data.do) {
-				case "story":
-					req.open("GET", "./story/" + data.s + ".json", true);
-					break;
-				case "user":
-					req.open("GET", "./users/" + data.u + ".json", true);
-					break;
-				default:
-					console.warn("Dropping request:", data);
-					setTimeout(0, function() {
-						if (!silent) {
-							MSPFA.dialog("Error", document.createTextNode("Functionality not yet implemented in archive view"), ["Ok"]);
-						}
-						if (typeof error === "function") {
-							error(404);
-						}
-					});
-
-					requests--;
-					if(!requests) {
-						loading.classList.remove("active");
-					}
-					return;
+			if(auth) {
+				data.token = idtoken;
 			}
-			// [END]
+			var req = new XMLHttpRequest();
+			req.open("POST", "/", true);
+			req.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
 			req.setRequestHeader("Accept", "application/json");
 			req.onreadystatechange = function() {
 				if(req.readyState == XMLHttpRequest.DONE) {
@@ -503,12 +85,10 @@
 					if(!requests) {
 						loading.classList.remove("active");
 					}
-					// [BEGIN] riking: handle file: protocol, remove X-Magic
-					if(req.status || location.protocol === "file:") {
+					if(req.status) {
 						statusType = Math.floor(req.status/100);
-						if(true || statusType == 5) {
-							if(statusType == 2 || location.protocol === "file:") {
-								// [END]
+						if(req.getResponseHeader("X-Magic") == "real" || statusType == 5) {
+							if(statusType == 2) {
 								var res;
 								if(req.responseText) {
 									res = JSON.parse(req.responseText);
@@ -524,7 +104,7 @@
 										}
 										break;
 									case 401:
-										if(false && /* riking: disable auto login */ !retry) {
+										if(!retry) {
 											gapi.auth2.init().then(function(auth2) {
 												if(idtoken = auth2.currentUser.get().getAuthResponse().id_token) {
 													MSPFA.request(auth, data, success, error, silent, true);
@@ -649,8 +229,7 @@
 				}
 			}
 			code = code.join("");
-			// riking: use a DOMParser document to delay image loading (thanks @SirStendec)
-			var e = tempDocument.createElement("span");
+			var e = document.createElement("span");
 			e.innerHTML = code;
 			var es = e.querySelectorAll("*");
 			for(var i = es.length-1; i >= 0; i--) {
@@ -660,39 +239,11 @@
 					if(es[i].name.trim() == "allowScriptAccess") {
 						es[i].parentNode.removeChild(es[i]);
 					}
-					// [BEGIN] riking: Change resource URLs to archive links
-				} else if (es[i].tagName == "OBJECT") {
-					(function(el, attrName, attrValue) {
-						resourceToBlob(attrValue).then(function(blobURL) {
-							el.data = blobURL;
-							//el.setAttribute(attrName, blobURL);
-						});
-					})(es[i], 'data', es[i].data);
-					es[i].data = "";
-				} else if (es[i].tagName == "A") {
-					if (/youtube\.com\/watch/.test(es[i].href) || /youtu\.be/.test(es[i].href)) {
-						console.log("YouTube URL to convert:", es[i]);
-						// TODO - YouTube URLs
-					} else {
-						es[i].href = toArchiveURL("web", es[i].href);
-					}
-					// [END]
 				} else {
 					for(var j = 0; j < es[i].attributes.length; j++) {
 						if(es[i].attributes[j].name.toLowerCase().indexOf("on") == 0 || es[i].attributes[j].value.trim().toLowerCase().indexOf("javascript:") == 0) {
 							es[i].removeAttribute(es[i].attributes[j].name);
 						}
-						// [BEGIN] riking: Change resource URLs to archive links
-						if (es[i].attributes[j].name == "src") {
-							var val = es[i].attributes[j].value;
-							es[i].setAttribute('src', "");
-							(function(el, attrName, attrValue) {
-								resourceToBlob(attrValue).then(function(blobURL) {
-									el.setAttribute(attrName, blobURL);
-								});
-							})(es[i], 'src', val);
-						}
-						// [END]
 					}
 				}
 			}
@@ -743,12 +294,6 @@
 			return e;
 		}
 	};
-	// [BEGIN] riking: stash globals
-
-	MSPFA.cdxIndex = cdxIndex;
-	MSPFA.cdxPending = cdxPending;
-
-	// [END]
 	var errorBlacklist = [
 		"SecurityError",
 		"QuotaExceededError",
@@ -767,7 +312,6 @@
 				break;
 			}
 		}
-		blacklisted = true; // riking: do not report JS errors
 		if(!blacklisted) {
 			if(evt.filename.indexOf(location.origin + "/js/") == 0) {
 				if(evt.error && evt.error.stack) {
@@ -806,24 +350,24 @@
 			}
 		}
 	});
-	// [BEGIN] riking: change params extraction
+	var rawParams;
+	if(location.href.indexOf("#") != -1) {
+		rawParams = location.href.slice(0, location.href.indexOf("#"));
+	} else {
+		rawParams = location.href;
+	}
+	if(rawParams.indexOf("?") != -1) {
+		rawParams = rawParams.slice(rawParams.indexOf("?")+1).split("&");
+	} else {
+		rawParams = [];
+	}
 	var params = {};
-	var params_extract = function(paramsStr) {
-		var rawParams = paramsStr.split("&");
-		for(var i = 0; i < rawParams.length; i++) {
-			try {
-				var p = rawParams[i].split("=");
-				params[p[0]] = decodeURIComponent(p[1]);
-			} catch(err) {}
-		}
+	for(var i = 0; i < rawParams.length; i++) {
+		try {
+			var p = rawParams[i].split("=");
+			params[p[0]] = decodeURIComponent(p[1]);
+		} catch(err) {}
 	}
-	if (location.hash.indexOf("#", 1) !== -1) {
-		// view.html#s=1234&p=4#anchor
-		params_extract(location.hash.slice(1, location.hash.indexOf("#", 1)));
-		location.hash = location.hash.slice(location.hash.indexOf("#", 1)+1);
-	}
-	params_extract(location.search.slice(1));
-	// [END]
 	if(document.createEvent) {
 		Element.prototype.click = function() {
 			var evt = document.createEvent("MouseEvents");
@@ -918,9 +462,9 @@
 		return (["Inactive", "Ongoing", "Complete"])[id-1] || "Useless";
 	};
 	var pageIcon = new Image();
-	pageIcon.src = GLOBAL_ASSET_BASE + "/assets/pages.png"; // riking: relative assets
+	pageIcon.src = "/images/pages.png";
 	var heartIcon = new Image();
-	heartIcon.src = GLOBAL_ASSET_BASE + "/assets/heart.png"; // riking: relative assets
+	heartIcon.src = "/images/heart.png";
 	pageIcon.classList.add("smol");
 	heartIcon.classList.add("smol");
 	var edit = document.createElement("input");
@@ -963,7 +507,7 @@
 			if(input.value) {
 				img.src = input.value
 			} else {
-				img.src = randomWat(); // riking: move random images to clientside
+				img.src = "/images/wat/random.njs";
 			}
 		}
 		input.addEventListener("change", changeSource);
@@ -1529,8 +1073,7 @@
 								td1.style.width = "64px";
 								var img = new Image();
 								img.classList.add("cellicon");
-								// TODO - archive user avatars
-								img.src = user.o || (randomWat() + "?cb=" + user.i); // riking: move random images to clientside
+								img.src = user.o || "/images/wat/random.njs?cb=" + user.i;
 								img.style.width = img.style.height = "32px";
 								td1.appendChild(img);
 								tr.appendChild(td1);
@@ -1585,10 +1128,6 @@
 		["The Yellow Yard", "Hack your way into acquiring this achievement"]
 	];
 	var updateFav = function() {
-		// [BEGIN] riking: disable favorite button
-		MSPFA.dialog("Error", document.createTextNode("Favoriting is not allowed on archival copies."), ["Close"]);
-		return;
-		// [END]
 		var t = this;
 		if(!t.disabled) {
 			if(!idtoken || MSPFA.me.f) {
@@ -1622,10 +1161,6 @@
 		}
 	};
 	var updateNotify = function() {
-		// [BEGIN] riking: disable notifications
-		MSPFA.dialog("Error", document.createTextNode("Notifications are not allowed on archival copies."), ["Close"]);
-		return;
-		// [END]
 		var t = this;
 		if(!t.disabled) {
 			if(!idtoken || MSPFA.me.f) {
@@ -1657,17 +1192,17 @@
 		var td1 = document.createElement("td");
 		td1.style.verticalAlign = "top";
 		var imga = document.createElement("a");
-		imga.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
+		imga.href = "/?s=" + story.i + "&p=1";
 		var img = new Image();
 		img.classList.add("cellicon");
-		setIconSrc(img, story, "?cb=" + story.i); // riking: use archived files for icons
+		img.src = story.o || "/images/wat/random.njs?cb=" + story.i;
 		imga.appendChild(img);
 		td1.appendChild(imga);
 		tr.appendChild(td1);
 		var td2 = document.createElement("td");
 		var t = document.createElement("a");
 		t.classList.add("major");
-		t.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
+		t.href = "/?s=" + story.i + "&p=1";
 		t.innerText = story.n;
 		td2.appendChild(t);
 		td2.appendChild(document.createTextNode(" "));
@@ -1720,8 +1255,7 @@
 		imga.href = "/user/?u=" + user.i;
 		var img = new Image();
 		img.classList.add("cellicon");
-		// TODO - archive user avatars
-		img.src = user.o || (randomWat() + "?cb=" + user.i); // riking: move random images to clientside
+		img.src = user.o || "/images/wat/random.njs?cb=" + user.i;
 		imga.appendChild(img);
 		td1.appendChild(imga);
 		tr.appendChild(td1);
@@ -1739,21 +1273,21 @@
 	var notification = document.querySelector("#notification");
 	var iconLink = document.querySelector("link[rel=\"icon\"]");
 	var loadNotifications = function() {
-		if(false && /* riking: disable notifications */ gapi.auth2.init().isSignedIn.get()) {
+		if(gapi.auth2.init().isSignedIn.get()) {
 			MSPFA.request(1, {
 				do: "notifications"
 			}, function(ns) {
 				if(ns) {
 					notification.innerText = ns.toString();
 					notification.style.display = "";
-					iconLink.href = GLOBAL_ASSET_BASE + "/assets/icon.png";
+					iconLink.href = "/images/icon.png";
 					if(location.pathname == "/my/") {
 						document.querySelector("#messages").innerText = "Messages (" + ns + ")";
 					}
 				} else {
 					notification.innerText = "0";
 					notification.style.display = "none";
-					iconLink.href = GLOBAL_ASSET_BASE + "/assets/ico.png";
+					iconLink.href = "/images/ico.png";
 					if(location.pathname == "/my/") {
 						document.querySelector("#messages").innerText = "Messages";
 					}
@@ -1979,14 +1513,14 @@
 							var td1 = document.createElement("td");
 							var img = new Image();
 							img.classList.add("cellicon");
-							img.src = s[i].o || (randomWat() + "?cb=" + s[i].i); // riking: move random images to clientside
+							img.src = s[i].o || "/images/wat/random.njs?cb=" + s[i].i;
 							td1.appendChild(img);
 							tr.appendChild(td1);
 							var td2 = document.createElement("td");
 							var t = document.createElement("a");
 							t.classList.add("major");
 							if(s[i].p) {
-								t.href = "view.html?s=" + s[i].i + "&p=1"; // riking: relative queries
+								t.href = "/?s=" + s[i].i + "&p=1";
 							}
 							t.innerText = s[i].n;
 							td2.appendChild(t);
@@ -2238,7 +1772,7 @@
 							}
 							if(!story.l) {
 								if(story.p.length) {
-									storyname.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
+									storyname.href = "/?s=" + story.i + "&p=1";
 								}
 								deletestory.addEventListener("click", function() {
 									var msg = document.createElement("span");
@@ -2451,11 +1985,11 @@
 							for(var i = 0; i < unsaved.length; i++) {
 								pages[unsaved[i]]._new = false;
 								pages[unsaved[i]].save.disabled = true;
-								pages[unsaved[i]].querySelector("a").href = "view.html?s=" + story.i + "&p=" + (unsaved[i]+1); // riking: relative queries
+								pages[unsaved[i]].querySelector("a").href = "/?s=" + story.i + "&p=" + (unsaved[i]+1);
 							}
 							unsaved = [];
 							saveall.disabled = true;
-							storyname.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
+							storyname.href = "/?s=" + story.i + "&p=1";
 						});
 					}
 				});
@@ -2601,19 +2135,19 @@
 									if(unsaved[i] <= t.form._i && pages[unsaved[i]]._new) {
 										pages[unsaved[i]]._new = false;
 										pages[unsaved[i]].save.disabled = true;
-										pages[unsaved[i]].querySelector("a").href = "view.html?s=" + story.i + "&p=" + (unsaved[i]+1); // riking: relative queries
+										pages[unsaved[i]].querySelector("a").href = "/?s=" + story.i + "&p=" + (unsaved[i]+1);
 										unsaved.splice(i, 1);
 									}
 								}
 							} else {
 								t.form.save.disabled = true;
-								t.form.querySelector("a").href = "view.html?s=" + story.i + "&p=" + (t.form._i+1); // riking: relative queries
+								t.form.querySelector("a").href = "/?s=" + story.i + "&p=" + (t.form._i+1);
 								unsaved.splice(unsaved.indexOf(t.form._i), 1);
 							}
 							if(!unsaved.length) {
 								saveall.disabled = true;
 							}
-							storyname.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
+							storyname.href = "/?s=" + story.i + "&p=1";
 						});
 					}
 				};
@@ -2765,7 +2299,7 @@
 					} else if(story.e.indexOf(MSPFA.me.i) != -1 || MSPFA.me.p) {
 						var storyname = document.querySelector("#storyname");
 						if(story.p.length) {
-							storyname.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
+							storyname.href = "/?s=" + story.i + "&p=1";
 						}
 						storyname.innerText = story.n;
 						defaultcmd.value = story.m || "Next.";
@@ -2833,7 +2367,7 @@
 							if(page._i == story.p.length-1) {
 								page.moveup.disabled = true;
 							}
-							page.querySelector("a").href = "view.html?s=" + story.i + "&p=" + (page._i+1); // riking: relative queries
+							page.querySelector("a").href = "/?s=" + story.i + "&p=" + (page._i+1);
 							page.cmd.value = story.p[i].c;
 							page.body.value = story.p[i].b;
 							page.next.value = story.p[i].n.join(",");
@@ -3504,8 +3038,7 @@
 								td1.style.verticalAlign = "top";
 								var img = new Image();
 								img.classList.add("cellicon");
-								// TODO - load from warc...?
-								img.src = m.u[msi.f].o || (randomWat() + "?cb=" + msi.i); // riking: move random images to clientside
+								img.src = m.u[msi.f].o || "/images/wat/random.njs?cb=" + msi.i;
 								td1.appendChild(img);
 								tr.appendChild(td1);
 								var td2 = document.createElement("td");
@@ -3732,10 +3265,10 @@
 				}
 			}
 		}
-	}; // note: end of login()
+	};
 	var warning = document.querySelector("#warning");
-	// document.cookie = "magic=real; path=/;"; // riking: do not test cookies
-	if(false && document.cookie) { // riking: do not test cookies
+	document.cookie = "magic=real; path=/;";
+	if(document.cookie) {
 		try {
 			localStorage.magic = "real";
 			window.gapiLoad = function() {
@@ -3803,7 +3336,7 @@
 			warning.style.display = "";
 			warning.innerText = "It seems that you have browser storage disabled, which will cause you to experience issues while browsing the site. Please enable your browser storage.";
 		}
-	} else if (false) { // riking: do not show disabled-cookies warning
+	} else {
 		warning.style.display = "";
 		warning.innerText = "It seems that you have browser cookies disabled, which will cause you to experience issues while browsing the site. Please enable your browser cookies.";
 	}
@@ -3815,10 +3348,10 @@
 		var getStoryTile = function(story, status) {
 			var s = document.createElement("a");
 			s.classList.add("story");
-			s.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
+			s.href = "/?s=" + story.i + "&p=1";
 			var icon = new Image();
 			icon.width = icon.height = 150;
-			setIconSrc(icon, story, "?cb=" + story.i); // riking: use archived files for icons
+			icon.src = story.o || "/images/wat/random.njs?cb=" + story.i;
 			s.appendChild(icon);
 			s.appendChild(document.createElement("br"));
 			var name = document.createElement("span");
@@ -3991,12 +3524,7 @@
 		};
 		displayArrows();
 		window.addEventListener("resize", displayArrows);
-	} else if ((/\/view.html\/?$/).test(location.pathname)) { // riking: change story view test
-		// LANDMARK: Start story view
-		// [BEGIN] riking: set default story ID
-		if (!params.s)
-			params.s = parseInt(defaultStoryID);
-		// [END]
+	} else if((location.pathname == "/" && params.s != undefined) || location.pathname == "/preview/") {
 		var p = parseInt(params.p) || 1;
 		MSPFA.story = {};
 		var page = {};
@@ -4031,7 +3559,6 @@
 					asRawParams = as[i].href;
 				}
 				if(asRawParams.indexOf("mspfa") != 0) {
-					as[i].href = toArchiveURL("web", as[i].href); // riking: edit link URLs to archive links
 					continue;
 				}
 				if(asRawParams.indexOf("#") != -1) {
@@ -4049,9 +3576,6 @@
 				}
 				if(parseInt(asParams.s) == MSPFA.story.i) {
 					as[i].addEventListener("click", linkSlide);
-				} else { // [BEGIN] riking: redirect to archived stories, ideally
-					// TODO
-					// [END]
 				}
 			}
 		};
@@ -4063,7 +3587,7 @@
 				if(location.pathname == "/preview/") {
 					page = JSON.parse(params.d);
 				} else {
-					historyState = "view.html?s=" + MSPFA.story.i + "&p=" + p; // riking: relative queries
+					historyState = "/?s=" + MSPFA.story.i + "&p=" + p;
 					if(location.href.slice(-historyState.length) != historyState) {
 						history.pushState(null, "", historyState);
 					}
@@ -4091,10 +3615,10 @@
 					}
 					if(backid) {
 						goback.parentNode.style.display = "";
-						goback.href = "view.html?s=" + MSPFA.story.i + "&p=" + backid; // riking: relative queries
+						goback.href = "/?s=" + MSPFA.story.i + "&p=" + backid;
 					} else {
 						goback.parentNode.style.display = "none";
-						goback.href = "view.html?s=" + MSPFA.story.i + "&p=" + p; // riking: relative queries
+						goback.href = "/?s=" + MSPFA.story.i + "&p=" + p;
 					}
 					if(p > 1 && location.pathname != "/preview/") {
 						prevlinks.style.display = "";
@@ -4109,7 +3633,7 @@
 					}
 					command.appendChild(MSPFA.parseBBCode(page.c || MSPFA.story.m));
 					var b = MSPFA.parseBBCode("\n" + page.b);
-					var imgs = b.querySelectorAll("img, video, iframe, canvas, object, embed"); // riking: include <embed>
+					var imgs = b.querySelectorAll("img, video, iframe, canvas, object");
 					var pad = getComputedStyle(slidee);
 					if(pad) {
 						pad = parseFloat(pad.paddingLeft) + parseFloat(pad.paddingRight);
@@ -4125,15 +3649,8 @@
 						imgs[i].classList.add("major");
 						imgs[i].addEventListener("load", loadImg);
 						imgs[i].addEventListener("error", loadImg);
-						// [BEGIN] riking: flag erroring images
-						imgs[i].addEventListener("error", function(evt) {
-							var el = this;
-							el.classList.add("failed");
-						});
-						// [END]
 					}
 					if(location.pathname != "/preview/") {
-						// riking: slinkSlide changes URLs to web-archive URLs
 						slinkSlide(b.querySelectorAll("a[href], area[href]"));
 					}
 					content.appendChild(b);
@@ -4145,7 +3662,7 @@
 							if(MSPFA.story.p[page.n[i]-1]) {
 								var line = document.createElement("div");
 								var link = document.createElement("a");
-								link.href = "view.html?s=" + MSPFA.story.i + "&p=" + page.n[i]; // riking: relative queries
+								link.href = "/?s=" + MSPFA.story.i + "&p=" + page.n[i];
 								link.appendChild(MSPFA.parseBBCode(MSPFA.story.p[page.n[i]-1].c || MSPFA.story.m));
 								link.addEventListener("click", linkSlide);
 								line.appendChild(link);
@@ -4157,8 +3674,6 @@
 					while(ctb.lastChild) {
 						ctb.removeChild(ctb.lastChild);
 					}
-					// [BEGIN] riking: remove um refresh
-					/*
 					try {
 						for(var i = 0; i < ums.length; i++) {
 							if(ums[i].contentWindow) {
@@ -4166,8 +3681,6 @@
 							}
 						}
 					} catch(err) {}
-					*/
-					// [END]
 					for(var i = 0; i < MSPFA.slide.length; i++) {
 						if(typeof MSPFA.slide[i] == "function") {
 							MSPFA.slide[i](p, i);
@@ -4175,7 +3688,7 @@
 					}
 					slidefdone = true;
 				} else {
-					adv404(); // riking: replace 404 handler
+					location.replace("/?s=20784&p=1");
 				}
 			} catch(err) {
 				if(location.pathname == "/preview/") {
@@ -4188,10 +3701,7 @@
 		var linkSlide = function(evt) {
 			if(!evt.ctrlKey && !evt.metaKey) {
 				evt.preventDefault();
-				// [BEGIN] riking: change parsing to URLSearchParams
-				var u = new URL(this.href, location);
-				MSPFA.page(parseInt(u.searchParams.get('p')) || 1);
-				// [END]
+				MSPFA.page(parseInt(this.href.slice(this.href.indexOf("p=")+2)) || 1);
 			}
 		};
 		MSPFA.request(0, {
@@ -4200,7 +3710,7 @@
 		}, function(v) {
 			MSPFA.story = v;
 			if(MSPFA.story.l || (!MSPFA.story.p.length && location.pathname != "/preview/")) {
-				adv404(); // riking: replace 404 handler
+				location.replace("/?s=20784&p=1");
 				return;
 			}
 			document.title = MSPFA.story.n;
@@ -4237,33 +3747,30 @@
 					if(registeredImports.indexOf(imports[i] == -1)) {
 						try {
 							registeredImports.push(imports[i]);
-							// [BEGIN] riking: load CSS from archive
-							resourceToBlob(imports[i], {returnText: true}).then(function(blobURL) {
-								return fetch(blobURL);
-							}).then(function(response) {
-								return response.text();
-							}).then(function(contentText) {
-								registerPageRanges(contentText, true);
-							}).catch(function(err) {
-							});
-							// [END]
+							var req = new XMLHttpRequest();
+							req.open("GET", imports[i], true);
+							req.onreadystatechange = function() {
+								if(req.readyState == XMLHttpRequest.DONE && req.status == 200 && req.responseText) {
+									registerPageRanges(req.responseText, true);
+								}
+							};
+							req.send();
 						} catch(err) {}
 					}
 				}
 			};
 			registerPageRanges(MSPFA.story.y);
-			startover.href = "view.html?s=" + MSPFA.story.i + "&p=1"; // riking: relative queries
+			startover.href = "/?s=" + MSPFA.story.i + "&p=1";
 			startover.addEventListener("click", linkSlide);
 			window.addEventListener("keydown", function(evt) {
 				if(!page || page.k || document.querySelector("textarea:focus, input[type=\"text\"]:focus, input[type=\"number\"]:focus, input[type=\"password\"]:focus, input[type=\"email\"]:focus")) {
 					return;
 				}
 				var prevent = true;
-				// TODO: allow multiple next/prev keycodes
 				switch(evt.keyCode) {
 					case MSPFA.me.s.k.p:
 						if(location.pathname != "/preview/") {
-							var clink = "view.html?s=" + MSPFA.story.i + "&p=" + p; // riking: relative queries
+							var clink = "/?s=" + MSPFA.story.i + "&p=" + p;
 							if(goback.href.indexOf(clink) != goback.href.length-clink.length) {
 								goback.click();
 							}
@@ -4309,7 +3816,7 @@
 				var icon = new Image();
 				icon.id = "storyicon";
 				icon.width = icon.height = 150;
-				setIconSrc(icon, MSPFA.story, "?cb=" + MSPFA.story.i); // riking: use archived files for icons
+				icon.src = MSPFA.story.o || "/images/wat/random.njs";
 				icon.style.marginRight = "6px";
 				td1.appendChild(icon);
 				tr1.appendChild(td1);
@@ -4322,26 +3829,24 @@
 				td2.appendChild(title);
 				td2.appendChild(document.createTextNode(" "));
 				var sedit = edit.cloneNode(false);
-				// riking: disable edit button
-				if(false && (idtoken && (MSPFA.story.e.indexOf(MSPFA.me.i) != -1 || MSPFA.me.p))) {
+				if(idtoken && (MSPFA.story.e.indexOf(MSPFA.me.i) != -1 || MSPFA.me.p)) {
 					sedit.style.display = "";
 				}
 				sedit.addEventListener("click", function() {
 					location.href = "/my/stories/info/?s=" + MSPFA.story.i;
 				});
-				// td2.appendChild(sedit); // riking: disable edit button
+				td2.appendChild(sedit);
 				td2.appendChild(document.createTextNode(" "));
 				var sfav = fav.cloneNode(false);
 				sfav._s = MSPFA.story;
 				sfav.addEventListener("click", updateFav);
-				// td2.appendChild(sfav); // riking: disable favorite button
+				td2.appendChild(sfav);
 				td2.appendChild(document.createTextNode(" "));
 				var snotify = notify.cloneNode(false);
 				snotify.addEventListener("click", updateNotify);
-				// td2.appendChild(snotify); // riking: disable notify button
+				td2.appendChild(snotify);
 				var gi = MSPFA.story.g.indexOf(MSPFA.me.i);
-				// riking: disable favorite button
-				if(false && (idtoken && (MSPFA.story.f.indexOf(MSPFA.me.i) != -1 || gi != -1))) {
+				if(idtoken && (MSPFA.story.f.indexOf(MSPFA.me.i) != -1 || gi != -1)) {
 					sfav.classList.remove("unlit");
 					sfav.classList.add("lit");
 					snotify.style.display = "";
@@ -4419,7 +3924,7 @@
 					var thiscmd = document.createElement("span");
 					thiscmd.appendChild(document.createTextNode(fetchDate(new Date(MSPFA.story.p[i].d)) + " - "));
 					var cmdlink = document.createElement("a");
-					cmdlink.href = "view.html?s=" + MSPFA.story.i + "&p=" + (i+1); // riking: relative queries
+					cmdlink.href = "/?s=" + MSPFA.story.i + "&p=" + (i+1);
 					cmdlink.appendChild(document.createTextNode("\""));
 					cmdlink.appendChild(MSPFA.parseBBCode(MSPFA.story.p[i].c || MSPFA.story.m));
 					cmdlink.appendChild(document.createTextNode("\""));
@@ -4433,7 +3938,7 @@
 				var viewAllPagesContainer = document.createElement("div");
 				viewAllPagesContainer.style.textAlign = "center";
 				var viewAllPages = document.createElement("a");
-				viewAllPages.href = "./log.html?s=" + MSPFA.story.i; // riking: redirect log url
+				viewAllPages.href = "/log/?s=" + MSPFA.story.i;
 				viewAllPages.style.fontSize = "14px";
 				viewAllPages.innerText = "VIEW ALL PAGES";
 				viewAllPagesContainer.appendChild(viewAllPages);
@@ -4456,7 +3961,7 @@
 				td4.style.height = (theight-Math.max(td1.offsetHeight, td2.offsetHeight)) + "px";
 				infoc.appendChild(t);
 				info.appendChild(infoe);
-				if(false && MSPFA.story.b) { // riking: Disable comments
+				if(MSPFA.story.b) {
 					var newcommentc = document.createElement("form");
 					newcommentc.id = "newcomment";
 					newcommentc.appendChild(document.createTextNode("Post a new comment:"));
@@ -4535,7 +4040,7 @@
 							} else if(output == "Bread") {
 								setTimeout(function() {
 									var bread = new Image();
-									bread.src = GLOBAL_ASSET_BASEURL + "/assets/bread.png"; // riking: global assets
+									bread.src = "/images/bread.png";
 									MSPFA.dialog("Bread", bread, []);
 								});
 							} else if(output == "Delete") {
@@ -4669,8 +4174,7 @@
 								var imglink = document.createElement("a");
 								var img = new Image();
 								img.classList.add("cellicon");
-								// TODO - archive comments incl. user avatars
-								img.src = c.u[c.c[i].u].o || (randomWat() + "?cb=" + c.c[i].d); // riking: move random images to clientside
+								img.src = c.u[c.c[i].u].o || "/images/wat/random.njs?cb=" + c.c[i].d;
 								imglink.appendChild(img);
 								ctd1.appendChild(imglink);
 								ctr.appendChild(ctd1);
@@ -4683,7 +4187,7 @@
 								ctd2.appendChild(document.createTextNode(" "));
 								var page = document.createElement("a");
 								page.classList.add("page");
-								page.href = "view.html?s=" + MSPFA.story.i + "&p=" + c.c[i].p; // riking: relative queries
+								page.href = "/?s=" + MSPFA.story.i + "&p=" + c.c[i].p;
 								page.addEventListener("click", linkSlide);
 								page.appendChild(document.createTextNode("(on page " + c.c[i].p + ")"));
 								ctd2.appendChild(page);
@@ -4776,34 +4280,60 @@
 				}
 				gamelinks.style.display = "";
 				document.querySelector("#savegame").addEventListener("click", function() {
-					// [BEGIN] riking: Replace save implementation
-					var saveTable = JSON.parse(localStorage.mspfa_save || "{}");
-					saveTable[MSPFA.story.i] = p;
-					localStorage.mspfa_save = JSON.stringify(saveTable);
-					MSPFA.dialog("Saved", document.createTextNode("Saved your location at page " + p + " locally. Click \"Load Game\" to return to this point."), ["Ok"]);
-					return;
-					// [END]
+					if(!idtoken || MSPFA.me.f) {
+						MSPFA.dialog("Error", document.createTextNode("You must be logged in to load your adventure progress."), ["Log in", "Cancel"], function(output) {
+							if(output == "Log in") {
+								location.href = "/login/?r=" + encodeURIComponent(location.href);
+							}
+						});
+					} else {
+						MSPFA.request(1, {
+							do: "game",
+							s: MSPFA.story.i,
+							p: p,
+							g: "save"
+						});
+					}
 				});
 				document.querySelector("#loadgame").addEventListener("click", function() {
-					// [BEGIN] riking: Replace save implementation
-					var saveTable = JSON.parse(localStorage.mspfa_save || "{}");
-					var g = saveTable[MSPFA.story.i];
-					if (g) {
-						MSPFA.page(g);
+					if(!idtoken || MSPFA.me.f) {
+						MSPFA.dialog("Error", document.createTextNode("You must be logged in to load your adventure progress."), ["Log in", "Cancel"], function(output) {
+							if(output == "Log in") {
+								location.href = "/login/?r=" + encodeURIComponent(location.href);
+							}
+						});
 					} else {
-						MSPFA.dialog("No Data", document.createTextNode("No save data found. Remember that saving is local to your computer."), ["Ok"]);
+						MSPFA.request(1, {
+							do: "game",
+							s: MSPFA.story.i,
+							g: "load"
+						}, function(g) {
+							if(g) {
+								MSPFA.page(g);
+							} else {
+								MSPFA.dialog("Error", document.createTextNode("You did not save your game!"), ["Okay"]);
+							}
+						});
 					}
-					return;
-					// [END]
 				});
 				document.querySelector("#deletegame").addEventListener("click", function() {
-					// [BEGIN] riking: Replace save implementation
-					var saveTable = JSON.parse(localStorage.mspfa_save || "{}");
-					saveTable[MSPFA.story.i] = undefined;
-					localStorage.mspfa_save = JSON.stringify(saveTable);
-					// MSPFA.dialog("Saved", document.createTextNode("Removed save data."), ["Ok"]);
-					return;
-					// [END]
+					if(!idtoken || MSPFA.me.f) {
+						MSPFA.dialog("Error", document.createTextNode("You must be logged in to delete your adventure progress."), ["Log in", "Cancel"], function(output) {
+							if(output == "Log in") {
+								location.href = "/login/?r=" + encodeURIComponent(location.href);
+							}
+						});
+					} else {
+						MSPFA.request(1, {
+							do: "game",
+							s: MSPFA.story.i,
+							g: "delete"
+						}, function(g) {
+							if(!g || isNaN(g)) {
+								MSPFA.dialog("Error", document.createTextNode("You did not save your game!"), ["Okay"]);
+							}
+						});
+					}
 				});
 			}
 			MSPFA.page(p);
@@ -4818,7 +4348,7 @@
 			}
 		}, function(status) {
 			if(status == 404) {
-				adv404(); // riking: replace 404 handler
+				location.replace("/?s=20784&p=1");
 			}
 		}, true);
 	} else if(location.pathname == "/login/") {
@@ -4944,11 +4474,10 @@
 					});
 					for(var i = 0; i < s.length; i++) {
 						var imgl = document.createElement("a");
-						imgl.href = "view.html?s=" + s[i].i + "&p=1"; // riking: relative queries
+						imgl.href = "/?s=" + s[i].i + "&p=1";
 						var img = new Image();
 						img.classList.add("cellicon");
-						// TODO - multi-story view
-						img.src = s[i].o || (randomWat() + "?cb=" + s[i].i); // riking: move random images to clientside
+						img.src = s[i].o || "/images/wat/random.njs?cb=" + s[i].i;
 						img.title = img.alt = s[i].n;
 						imgl.appendChild(img);
 						userstories.appendChild(imgl);
@@ -4964,7 +4493,6 @@
 						imgl.href = "/achievements/?u=" + user.i;
 						var img = new Image();
 						img.classList.add("cellicon");
-						// TODO - ...achievements?
 						img.src = "/images/achievements/" + i + ".png";
 						img.title = img.alt = achievements[i][0];
 						imgl.appendChild(img);
@@ -5065,7 +4593,7 @@
 			tagselect.options[0].selected = true;
 		});
 		explore.style.opacity = "";
-	} else if ((/\/log.html\/?$/).test(location.pathname)) { // riking: log.html
+	} else if(location.pathname == "/log/") {
 		var pages = document.querySelector("#pages");
 		MSPFA.request(0, {
 			do: "story",
@@ -5074,14 +4602,14 @@
 			if(!story.l && story.p.length) {
 				var storyname = document.querySelector("#storyname");
 				storyname.innerText = story.n;
-				storyname.href = "view.html?s=" + story.i + "&p=1"; // riking: relative paths
+				storyname.href = "/?s=" + story.i + "&p=1";
 				for(var i = story.p.length-1; i >= 0; i--) {
 					if(i < story.p.length-1) {
 						pages.appendChild(document.createElement("br"));
 					}
 					pages.appendChild(document.createTextNode(fetchDate(new Date(story.p[i].d)) + " - "));
 					var cmdlink = document.createElement("a");
-					cmdlink.href = "view.html?s=" + story.i + "&p=" + (i+1); // riking: relative paths
+					cmdlink.href = "/?s=" + story.i + "&p=" + (i+1);
 					cmdlink.appendChild(document.createTextNode("\""));
 					cmdlink.appendChild(MSPFA.parseBBCode(story.p[i].c || story.m));
 					cmdlink.appendChild(document.createTextNode("\""));
@@ -5089,14 +4617,14 @@
 				}
 				pages.style.display = "";
 			} else {
-				adv404(); // riking: replace 404 handler
+				location.replace("/?s=20784&p=1");
 			}
 		}, function(status) {
 			if(status == 404) {
-				adv404(); // riking: replace 404 handler
+				location.replace("/?s=20784&p=1");
 			}
 		}, true);
-	} else if ((/\/search.html\/?$/).test(location.pathname)) { // riking: search.html
+	} else if(location.pathname == "/search/") {
 		var pages = document.querySelector("#pages");
 		MSPFA.request(0, {
 			do: "story",
@@ -5105,7 +4633,7 @@
 			if(!story.l && story.p.length) {
 				var storyname = document.querySelector("#storyname");
 				storyname.innerText = story.n;
-				storyname.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
+				storyname.href = "/?s=" + story.i + "&p=1";
 				for(var i = 0; i < story.p.length; i++) {
 					pages.appendChild(document.createElement("br"));
 					var phead = document.createElement("span");
@@ -5113,20 +4641,13 @@
 					phead.innerText = fetchDate(new Date(story.p[i].d));
 					phead.appendChild(document.createElement("br"));
 					var cmdlink = document.createElement("a");
-					cmdlink.href = "view.html?s=" + story.i + "&p=" + (i+1); // riking: relative queries
+					cmdlink.href = "/?s=" + story.i + "&p=" + (i+1);
 					cmdlink.appendChild(document.createTextNode("\""));
 					cmdlink.appendChild(MSPFA.parseBBCode(story.p[i].c || story.m));
 					cmdlink.appendChild(document.createTextNode("\""));
 					phead.appendChild(cmdlink);
 					pages.appendChild(phead);
-					// [BEGIN] riking: Remove images *before* inserting into the document.
-					var pageBody = MSPFA.parseBBCode(story.p[i].b, false);
-					var srem = pageBody.querySelectorAll("img, style, iframe, video, audio, object, embed");
-					for(var j = srem.length-1; j >= 0; j--) {
-						srem[j].parentNode.removeChild(srem[j]);
-					}
-					pages.appendChild(pageBody);
-					// [END]
+					pages.appendChild(MSPFA.parseBBCode(story.p[i].b));
 					pages.appendChild(document.createElement("br"));
 					pages.appendChild(document.createElement("br"));
 				}
@@ -5140,11 +4661,11 @@
 				}
 				pages.style.display = "";
 			} else {
-				adv404(); // riking: replace 404 handler
+				location.replace("/?s=20784&p=1");
 			}
 		}, function(status) {
 			if(status == 404) {
-				adv404(); // riking: replace 404 handler
+				location.replace("/?s=20784&p=1");
 			}
 		}, true);
 	} else if(location.pathname == "/readers/") {
@@ -5156,7 +4677,7 @@
 			if(!story.l && story.p.length) {
 				var storyname = document.querySelector("#storyname");
 				storyname.innerText = story.n;
-				storyname.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
+				storyname.href = "/?s=" + story.i + "&p=1";
 				MSPFA.request(0, {
 					do: "readers",
 					s: story.i,
@@ -5169,11 +4690,11 @@
 					readers.parentNode.parentNode.parentNode.style.display = "";
 				});
 			} else {
-				adv404(); // riking: replace 404 handler
+				location.replace("/?s=20784&p=1");
 			}
 		}, function(status) {
 			if(status == 404) {
-				adv404(); // riking: replace 404 handler
+				location.replace("/?s=20784&p=1");
 			}
 		}, true);
 	} else if(location.pathname == "/achievements/") {
@@ -5192,7 +4713,6 @@
 				var td1 = document.createElement("td");
 				var img = new Image();
 				img.classList.add("cellicon");
-				// TODO - achievements...?
 				img.src = "/images/achievements/" + i + ".png";
 				td1.appendChild(img);
 				tr.appendChild(td1);
@@ -5275,7 +4795,17 @@
 			}
 		}, true);
 	} else if(location.pathname == "/random/") {
-		location.replace("https://mspfa.com/random"); // riking: direct random to actual site
+		MSPFA.request(0, {
+			do: "stories",
+			n: "",
+			t: "",
+			h: 14,
+			o: "random",
+			p: "p",
+			m: 1
+		}, function(s) {
+			location.replace("/?s=" + s[0].i + "&p=1");
+		});
 	} else if(location.pathname == "/donate/") {
 		var donators = document.querySelector("#donators");
 		MSPFA.request(0, {
@@ -5364,7 +4894,7 @@
 							var msg = document.createElement("span");
 							msg.appendChild(document.createTextNode("Are you sure you want to vote for "));
 							var storyn = document.createElement("a");
-							storyn.href = "view.html?s=" + story.i + "&p=1"; // riking: relative queries
+							storyn.href = "/?s=" + story.i + "&p=1";
 							storyn.innerText = story.n;
 							msg.appendChild(storyn);
 							msg.appendChild(document.createTextNode("?"));
