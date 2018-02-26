@@ -131,6 +131,7 @@ func (a advDir) File(name string) string {
 }
 
 var (
+	storyIDFlag    = flag.String("s", "", "MSPFA Story id (required)")
 	iaIdentifier   = flag.String("ident", "", "Internet Archive item identifier. See also -test")
 	testIA         = flag.Bool("test", false, "Flag IA uploads with test_collection")
 	localScripts   = flag.Bool("devScript", false, "use local copies of mspfa.js instead of archive.org copies")
@@ -139,11 +140,16 @@ var (
 	forceAdvUpdate = flag.Bool("f", false, "Force update of story .json")
 	outDir         = flag.String("o", "./target", "Output directory where the archive folders should be created.")
 	download       = flag.Bool("dl", false, "Download files instead of just listing them")
-
-	updateAssets = flag.Bool("updateassets", false, "Update assets instead of archving a story")
-
-	wpullArgs = flag.String("wpull-args", "", "Extra arguments to wpull")
+	updateAssets   = flag.Bool("updateAssets", false, "Update assets instead of archving a story")
+	wpullArgs      = flag.String("wpull-args", "", "Extra arguments to wpull")
 )
+
+func usage() {
+	fmt.Fprintln(os.Stderr, "Usage of mspfa-archiver:")
+	fmt.Fprintln(os.Stderr, "  mspfa-archiver [-dl] [-ident Identifier] [...] -s 123")
+	fmt.Fprintln(os.Stderr, "  mspfa-archiver -updateAssets")
+	flag.PrintDefaults()
+}
 
 var cssTrimLeft = regexp.MustCompile(`^url\((['"]?)`)
 var mspfaBaseURL, _ = url.Parse("https://mspfa.com/")
@@ -850,6 +856,7 @@ func writeUploadFilesCSV(dir advDir) error {
 }
 
 func main() {
+	flag.Usage = usage
 	flag.Parse()
 
 	if *updateAssets {
@@ -858,14 +865,15 @@ func main() {
 		return
 	}
 
-	if flag.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "Usage: mspfa-mirror [-o folder] [-ident Identifier] [-dl] [adventure ID]\n"+
-			"  Downloads the story .json and all images of a MSPFA adventure.")
-		flag.PrintDefaults()
+	if flag.NArg() > 1 {
+		usage()
+		os.Exit(2)
 	}
+	var err error
 
-	storyID := flag.Arg(0)
-	_, err := strconv.Atoi(storyID)
+	// TODO - support putting multiple stories in the same folder
+	storyID := *storyIDFlag
+	_, err = strconv.Atoi(storyID)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "story ID must be an integer")
 		os.Exit(1)
