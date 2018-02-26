@@ -365,8 +365,12 @@
 					return resourceToBlob(target);
 				}
 			}
+			var mimeType = cdxData.mime;
+			if (mimeType === "-") {
+				mimeType = httpHeaders.get('Content-Type');
+			}
 			// return result
-			var blob = new Blob([inflator.result.slice(contentStart)], {type: cdxData.mime});
+			var blob = new Blob([inflator.result.slice(contentStart)], {type: mimeType});
 			return URL.createObjectURL(blob) + "#" + url;
 		}).catch(function(err) {
 			console.error(err);
