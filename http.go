@@ -1,7 +1,12 @@
 package main
 
-const shortTimeout = 20 * time.Second
-const longTimeout = 10 * time.Minute
+import (
+	"net/http"
+	"time"
+)
+
+var shortTimeout = 20 * time.Second
+var longTimeout = 10 * time.Minute
 
 var _defaultTransport = &http.Transport{
 	TLSHandshakeTimeout: shortTimeout,
@@ -10,17 +15,17 @@ var _defaultTransport = &http.Transport{
 	ResponseHeaderTimeout: longTimeout,
 }
 
-type uaRoundTripper http.RoundTripper
+type uaRoundTripper struct{ http.RoundTripper }
 
 func (wrap uaRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.Header.Get("User-Agent") == "" {
 		req.Header.Set("User-Agent", userAgent)
 	}
-	return wrap.RoundTrip(req)
+	return wrap.RoundTripper.RoundTrip(req)
 }
 
 func init() {
 	httpClient = &http.Client{
-		Transport: uaRoundTripper(_defaultTransport),
+		Transport: uaRoundTripper{RoundTripper: _defaultTransport},
 	}
 }

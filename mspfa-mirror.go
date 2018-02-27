@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -841,19 +840,89 @@ func archiveStory(story *StoryJSON, dir advDir) error {
 	return nil
 }
 
-func writeUploadFilesCSV(dir advDir) error {
-	return nil // TODO
+func detectExistingItem(storyID string) ([]string, error) {
+	// range query is TEXT-BASED. "[1 TO 19999]" matches 1*
+	const searchURL = "https://archive.org/services/search/v1/scrape"
+	params := url.Values{}
+	params.Set("fields", "identifier")
+	params.Set("q", fmt.Sprintf(
+		"collection=mspaintfanadventures mspfa-id=%s", storyID),
+	)
 
-	f, err := os.Create(dir.File("ia-upload-files.csv"))
+	uri := searchURL + "?" + params.Encode()
+	req, err := http.NewRequest("GET", uri, nil)
 	if err != nil {
-		return err
+		panic(err)
 	}
-	defer f.Close()
-	w := csv.NewWriter(f)
-	defer w.Flush()
-	w.Write([]string{"identifier", "file"})
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "search IA")
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Items []struct {
+			Identifier string
+		}
+		Count int
+		Total int
+	}
+	if resp.StatusCode != 200 {
+		return nil, errors.Errorf("bad result from IA for search: %s", resp.Status)
+	}
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	if err != nil {
+		return nil, errors.Wrap(err, "bad result from IA for search")
+	}
 
-	return nil
+	var results []string
+	for _, v := range result.Items {
+		results = append(results, v.Identifier)
+	}
+	return results, nil
+}
+
+func checkIAIdentifier(storyID string) {
+	identifiers, err := detectExistingItem(storyID)
+	if *iaIdentifier == "auto" {
+		if len(identifiers) == 0 {
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "failed to autodetect identifier:", err)
+				os.Exit(12)
+			} else {
+				// Default format
+				*iaIdentifier = fmt.Sprintf("MSPFA_%s", storyID)
+			}
+		} else if len(identifiers) == 1 {
+			*iaIdentifier = identifiers[0]
+		} else {
+			fmt.Fprintln(os.Stderr, "failed to autodetect identifier: found multiple existing")
+			fmt.Fprintln(os.Stderr, "existing:", identifiers)
+			os.Exit(12)
+		}
+	} else if *iaIdentifier != "" {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "failed to autodetect identifier:", err)
+			os.Exit(12)
+		} else if len(identifiers) == 0 {
+			// OK
+		} else {
+			found := false
+			for _, v := range identifiers {
+				if v == *iaIdentifier {
+					found = true
+				}
+			}
+			if !found {
+				if !*forceUpload {
+					fmt.Fprintln(os.Stderr, "selected identifier does not match existing upload")
+					fmt.Fprintln(os.Stderr, "existing:", identifiers)
+					os.Exit(12)
+				}
+				// else OK
+			}
+			// else OK
+		}
+	}
 }
 
 func main() {
@@ -879,6 +948,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "story ID must be an integer")
 		os.Exit(1)
 	}
+
+	checkIAIdentifier(storyID)
 
 	folder := advDir(filepath.Join(*outDir, storyID))
 
@@ -917,6 +988,13 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
 			downloadFailed = true
 		}
+	}
+
+	// TODO move into *download
+	err = waybackPull404s(folder)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%+v\n", err)
+		downloadFailed = true
 	}
 
 	if downloadFailed && !*forceUpload {
