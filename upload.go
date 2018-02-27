@@ -229,7 +229,7 @@ func _uploadFile(job *uploadJob) error {
 		lastReport: time.Now(),
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "failed to upload")
 	}
@@ -277,7 +277,7 @@ func getFilesXML() (*archiveFilesXML, error) {
 	defer idx.BuildIndex()
 
 	url := fmt.Sprintf("https://archive.org/download/%s/%s_files.xml", *iaIdentifier, *iaIdentifier)
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return nil, errors.Wrap(err, "Failed to fetch files.xml")
 	}

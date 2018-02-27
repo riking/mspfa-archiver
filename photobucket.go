@@ -72,7 +72,7 @@ func photobucketFileExists(destFile string) (bool, error) {
 	}
 }
 
-func downloadPhotobucket(uri string, dir advDir) error {
+func downloadPhotobucket(uri string, httpClient *http.Client, dir advDir) error {
 	match := photobucketDirectRgx.FindStringSubmatch(uri)
 	if match == nil {
 		match = photobucketDirectHTMLRgx.FindStringSubmatch(uri)
@@ -116,17 +116,8 @@ func downloadPhotobucket(uri string, dir advDir) error {
 	// chrome on iOS "request as desktop" user-agent
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_4) AppleWebKit/600.7.12 (KHTML, like Gecko) Version/8.0.7 Safari/600.7.12")
 
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			fmt.Println("photobucket: REDIRECT TO", req.URL)
-			if strings.HasSuffix(req.URL.Path, "bwe.png") {
-				return errPhotobucketBWE
-			}
-			return http.ErrUseLastResponse
-		},
-	}
-
-	resp, err := client.Do(req)
+	//shadow-ignore:httpClient
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return errors.Wrapf(err, "downloading %s", uri)
 	}
@@ -151,10 +142,21 @@ func downloadPhotobucketURLs(dir advDir) error {
 	}
 	sc := bufio.NewScanner(list)
 
+	// Error out on redirects
+	pbClient := new(http.Client)
+	*pbClient = *httpClient
+	pbClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		fmt.Println("photobucket: REDIRECT TO", req.URL)
+		if strings.HasSuffix(req.URL.Path, "bwe.png") {
+			return errPhotobucketBWE
+		}
+		return http.ErrUseLastResponse
+	}
+
 	failed := false
 	for sc.Scan() {
 		url := sc.Text()
-		err = downloadPhotobucket(url, dir)
+		err = downloadPhotobucket(url, pbClient, dir)
 		if err != nil {
 			fmt.Println(err)
 			failed = true

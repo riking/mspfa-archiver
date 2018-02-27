@@ -153,6 +153,7 @@ func usage() {
 
 var cssTrimLeft = regexp.MustCompile(`^url\((['"]?)`)
 var mspfaBaseURL, _ = url.Parse("https://mspfa.com/")
+var httpClient *http.Client
 
 const stampFormat = "20060102150405"
 
@@ -200,7 +201,7 @@ func downloadStoryJSON(storyID string, destFile string) (*StoryJSON, error) {
 	form.Set("do", "story")
 	form.Set("s", storyID)
 	fmt.Println("Fetching", form)
-	resp, err := http.PostForm("https://mspfa.com/", form)
+	resp, err := httpClient.PostForm("https://mspfa.com/", form)
 	if err != nil {
 		return nil, errors.Wrapf(err, "get story %s", storyID)
 	}
@@ -245,7 +246,7 @@ statcontinue:
 	form.Set("do", "user")
 	form.Set("u", string(userID))
 	fmt.Println("Fetching", form)
-	resp, err := http.PostForm("https://mspfa.com/", form)
+	resp, err := httpClient.PostForm("https://mspfa.com/", form)
 	if err != nil {
 		return nil, errors.Wrapf(err, "get user %s", userID)
 	}
@@ -309,7 +310,7 @@ func downloadResources(dir advDir) error {
 
 func downloadFile(uri string, dest string) error {
 	fmt.Println("Downloading", uri)
-	resp, err := http.Get(uri)
+	resp, err := httpClient.Get(uri)
 	if err != nil {
 		return errors.Wrapf(err, "downloading %s", uri)
 	}
