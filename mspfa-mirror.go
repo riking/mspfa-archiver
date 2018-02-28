@@ -846,10 +846,11 @@ func detectExistingItem(storyID string) ([]string, error) {
 	params := url.Values{}
 	params.Set("fields", "identifier")
 	params.Set("q", fmt.Sprintf(
-		"collection=mspaintfanadventures mspfa-id=%s", storyID),
+		"collection:mspaintfanadventures mspfa-id:%s", storyID),
 	)
 
 	uri := searchURL + "?" + params.Encode()
+	fmt.Println(uri)
 	req, err := http.NewRequest("GET", uri, nil)
 	if err != nil {
 		panic(err)
@@ -883,6 +884,7 @@ func detectExistingItem(storyID string) ([]string, error) {
 
 func checkIAIdentifier(storyID string) {
 	identifiers, err := detectExistingItem(storyID)
+	fmt.Println("existing identifiers:", identifiers)
 	if *iaIdentifier == "auto" {
 		if len(identifiers) == 0 {
 			if err != nil {

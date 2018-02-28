@@ -561,7 +561,7 @@ func calculateArchiveMetadata(story *StoryJSON, dir advDir) url.Values {
 			fac10 *= 10
 		}
 		addHdr("subject", fmt.Sprintf("pages-%v-%v", pr1, pr2))
-		setHdr("pagecount", fmt.Sprint(pages))
+		setHdr("pagecount", fmt.Sprintf("%5d", pages))
 	}
 	setHdr("publisher", "MS Paint Fan Adventures")
 	setHdr("mspfa-id", fmt.Sprint(story.ID))

@@ -22,11 +22,6 @@ type warcRespMeta struct {
 	foundSuccess bool
 }
 
-type WriteFlusher interface {
-	io.Writer
-	Flush() error
-}
-
 func waybackPull404s(dir advDir) error {
 	info, err := waybackFind404s(dir.File("resources.warc.gz"))
 	if err != nil {
