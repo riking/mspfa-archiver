@@ -334,9 +334,8 @@ func downloadVideo(uri string, dir advDir) error {
 	cmd := exec.Command("youtube-dl",
 		"-o", dir.File("videos/"+parsed.Host+"/%(id)s.%(ext)s"),
 		// "-k", // keep bestvideo/bestaudio fragments
-		"-r", "3M",
+		"-r", "1M",
 		"-f", "bestvideo+bestaudio/best",
-		"--http-chunk-size", "3M",
 		uri,
 	)
 
