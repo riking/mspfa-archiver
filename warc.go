@@ -38,13 +38,19 @@ type warcWriter struct {
 
 func (w *warcWriter) SetCDXWriter(cdxWriter *cdxWriter) {
 	w.cdxWriter = cdxWriter
-	w.WARCWriter.RecordCallback = func(rec *warc.Record, startPos int64, endPos int64) {
-		w.cdxWriter.CDXAddRecord(rec, w.curResp, startPos, endPos)
+	if cdxWriter != nil {
+		cdxWriter.WARCFileName = w.warcFileName
+	}
+	if w.cdxWriter != nil && w.WARCWriter != nil {
+		w.WARCWriter.RecordCallback = func(rec *warc.Record, startPos int64, endPos int64) {
+			w.cdxWriter.CDXAddRecord(rec, w.curResp, startPos, endPos)
+		}
 	}
 }
 
 // Write a WARCInfo record and save its ID as w.WARCInfoID.
 func (w *warcWriter) WriteWarcinfo(rec *warc.Record) error {
+	w.checkInit()
 	err := w.WARCWriter.WriteRecord(rec)
 	if err != nil {
 		return err
@@ -55,6 +61,7 @@ func (w *warcWriter) WriteWarcinfo(rec *warc.Record) error {
 
 // Write a record with no special processing.
 func (w *warcWriter) WriteRecord(rec *warc.Record) error {
+	w.checkInit()
 	return w.WARCWriter.WriteRecord(rec)
 }
 
@@ -63,6 +70,7 @@ func (w *warcWriter) WriteRecord(rec *warc.Record) error {
 // If the HTTP response object is unavailable, simply pass nil - it will be
 // parsed from the response WARC record.  The body need not be readable.
 func (w *warcWriter) WriteRecordsAndCDX(reqRec, respRec *warc.Record, httpResp *http.Response) error {
+	w.checkInit()
 	if w.WARCInfoID != "" {
 		reqRec.Headers.Set(warc.FieldNameWARCWarcinfoID, w.WARCInfoID)
 		respRec.Headers.Set(warc.FieldNameWARCWarcinfoID, w.WARCInfoID)
@@ -85,38 +93,51 @@ func (w *warcWriter) WriteRecordsAndCDX(reqRec, respRec *warc.Record, httpResp *
 }
 
 func (w *warcWriter) Close() error {
-	w.WARCWriter.Close()
-	w.warcGz.Flush()
-	w.warcGz.Close()
+	if w.WARCWriter != nil {
+		w.WARCWriter.Close()
+		w.warcGz.Flush()
+		w.warcGz.Close()
+	}
 	w.warcFile.Close()
 
-	w.cdxWriter.Close()
+	if w.cdxWriter != nil {
+		w.cdxWriter.Close()
+	}
 	return nil
 }
 
+func (w *warcWriter) checkInit() {
+	if w.WARCWriter != nil {
+		return
+	}
+	w.warcGz = gzip.NewWriter(w.warcFile)
+	warcW, err := warc.NewWriterCompressed(w.warcFile, w.warcGz)
+	if err != nil {
+		panic(err)
+	}
+	w.WARCWriter = warcW
+	if w.cdxWriter != nil {
+		w.WARCWriter.RecordCallback = func(rec *warc.Record, startPos int64, endPos int64) {
+			w.cdxWriter.CDXAddRecord(rec, w.curResp, startPos, endPos)
+		}
+	}
+}
+
 func prepareWARCWriter(cdxWriter *cdxWriter, dir advDir) (*warcWriter, error) {
-	warcF, err := os.OpenFile(dir.File("resources.warc.gz"), os.O_APPEND|os.O_RDWR, 0)
+	relFilename := "resources.warc.gz"
+	warcF, err := os.OpenFile(dir.File(relFilename), os.O_APPEND|os.O_RDWR, 0)
 	if err != nil {
 		return nil, err
 	}
-	warcGZ := gzip.NewWriter(warcF)
+	// gzip initialization is delayed - we might not have to write any records at all
 
-	warcW, err := warc.NewWriterCompressed(warcF, warcGZ)
-	if err != nil {
-		return nil, err
+	if cdxWriter != nil {
+		cdxWriter.WARCFileName = relFilename
 	}
-	cdxF, err := os.OpenFile(dir.File("resources.cdx"), os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
-	if err != nil {
-		return nil, err
-	}
-
-	cdxW := csv.NewWriter(cdxF)
-	cdxW.Comma = ' ' // cdx files use space delimiters
 
 	return &warcWriter{
-		WARCWriter: warcW,
-		warcFile:   warcF,
-		warcGz:     warcGZ,
+		warcFile:     warcF,
+		warcFileName: relFilename,
 
 		cdxWriter: cdxWriter,
 	}, nil
@@ -143,7 +164,7 @@ func (cw *cdxWriter) CDXAddRecord(rec *warc.Record, httpResp *http.Response, sta
 	}
 	CDXLine(rec, httpResp, cw.cdxFormat, cw.cdxLine)
 	cdxSet(cw.cdxFormat, cw.cdxLine, CDXCompressedOffset, fmt.Sprint(startPos))
-	cdxSet(cw.cdxFormat, cw.cdxLine, CDXCompressedSize, fmt.Sprint(endPos))
+	cdxSet(cw.cdxFormat, cw.cdxLine, CDXCompressedSize, fmt.Sprint(endPos-startPos))
 	cdxSet(cw.cdxFormat, cw.cdxLine, CDXArcFileName, cw.WARCFileName)
 
 	fmt.Println(cw.cdxLine)
@@ -339,6 +360,9 @@ func cdxSet(format CDXFormat, line []string, key byte, value string) {
 	idx, ok := format[key]
 	if !ok {
 		return
+	}
+	if value == "" {
+		value = "-"
 	}
 	line[idx] = value
 }

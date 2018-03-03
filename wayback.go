@@ -91,15 +91,13 @@ func waybackGetIndex(uri string) ([][]string, error) {
 
 // TODO: rewrite cdx?
 func waybackFind404s(cdxWriter *cdxWriter, dir advDir) (map[string]warcRespMeta, error) {
-	warcF, err := os.Open(dir.File("resources.warc.gz"))
+	relFilename := "resources.warc.gz"
+	warcF, err := os.Open(dir.File(relFilename))
 	if err != nil {
 		return nil, err
 	}
+	cdxWriter.WARCFileName = relFilename
 	warcBR := bufio.NewReader(warcF)
-	warcR, err := gzip.NewReader(warcBR)
-	if err != nil {
-		return nil, errors.Wrap(err, "open warc")
-	}
 
 	readPos := func() int64 {
 		pos_, err := warcF.Seek(0, io.SeekCurrent)
@@ -109,14 +107,21 @@ func waybackFind404s(cdxWriter *cdxWriter, dir advDir) (map[string]warcRespMeta,
 		return pos_ - int64(warcBR.Buffered())
 	}
 
-	var failingResponses = make(map[string]warcRespMeta)
 	var startPos, endPos int64
+	startPos = readPos()
+
+	warcR, err := gzip.NewReader(warcBR)
+	if err != nil {
+		return nil, errors.Wrap(err, "open warc")
+	}
+
+	var failingResponses = make(map[string]warcRespMeta)
 	for {
 		warcR.Multistream(false)
 
-		startPos = readPos()
 		record, err := readWARCRecord(warcR)
 		if err == io.EOF {
+			// empty record
 			goto _continue
 		} else if err != nil {
 			return nil, errors.Wrapf(err, "writing cdx: reading warc\nrecord: %v", record)
@@ -130,6 +135,7 @@ func waybackFind404s(cdxWriter *cdxWriter, dir advDir) (map[string]warcRespMeta,
 		}
 
 	_continue:
+		startPos = readPos()
 		err = warcR.Reset(warcBR)
 		if err == io.EOF {
 			break // real EOF

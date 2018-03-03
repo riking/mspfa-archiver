@@ -1005,6 +1005,7 @@ func main() {
 		}
 
 		// this step writes the CDX file
+		fmt.Println("writing CDX file")
 		info, err := waybackFind404s(cdxWriter, folder)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
