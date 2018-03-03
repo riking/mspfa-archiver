@@ -761,6 +761,9 @@ func buildResourceList(urlChan chan Rsc) map[Rsc]struct{} {
 			continue
 		}
 		u = mspfaBaseURL.ResolveReference(u)
+		if u.Host == "mspfanadventures.com" {
+			u.Host = "mspfa.com"
+		}
 		resource.U = u.String()
 		if resource.Type == tLink {
 			if strings.HasSuffix(resource.U, ".swf") {
@@ -1032,13 +1035,13 @@ func main() {
 			downloadFailed = true
 		}
 
-		err = waybackPull404s(warcWriter, nil, folder)
+		err = g.waybackPull404s(nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
 			downloadFailed = true
 		}
 
-		// err = downloadVideos(folder)
+		err = downloadVideos(folder)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
 			downloadFailed = true

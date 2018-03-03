@@ -22,27 +22,44 @@ type warcRespMeta struct {
 	foundSuccess bool
 }
 
-func waybackPull404s(wr *warcWriter, info map[string]warcRespMeta, dir advDir) error {
-
-	// wr := prepareWARCWriter(dir)
-
-	for k, v := range info {
-		if v.foundSuccess {
-			continue
+func (g *downloadG) waybackPull404s(info map[string]warcRespMeta) error {
+	var list404s []string
+	for uri, ok := range g.downloadedURLs {
+		if !ok {
+			list404s = append(list404s, uri)
 		}
+	}
 
-		ok, err := waybackAttemptPull(k)
-		fmt.Println(k, ok, err)
+	for _, uri := range list404s {
+		ok, err := g.waybackAttemptPull(uri)
+		fmt.Println(uri, ok, err)
 	}
 
 	return nil
 }
+func waybackGetIndex(uri string) ([][]string, error) {
+	apiQ := fmt.Sprintf("https://web.archive.org/cdx/search/cdx?url=%s&limit=50&matchType=exact",
+		url.QueryEscape(uri),
+	)
+	resp, err := http.Get(apiQ) // TODO custom client
+	if err != nil {
+		return nil, errors.Wrap(err, "contact archive")
+	}
+	defer resp.Body.Close()
+	var records [][]string
+	sc := bufio.NewScanner(resp.Body)
+	for sc.Scan() {
+		records = append(records, strings.Fields(sc.Text()))
+	}
+	return records, errors.Wrap(sc.Err(), "read archive cdx")
+}
 
-func waybackAttemptPull(uri string /*, wr WriteFlusher*/) (bool, error) {
+func (g *downloadG) waybackAttemptPull(uri string) (bool, error) {
 	index, err := waybackGetIndex(uri)
 	if err != nil {
 		return false, err
 	}
+	/// Find a successful timestamp
 	// urlkey, timestamp, original_url, mimetype, statuscode, chksum, length
 	var targetTimestamp string
 	for _, fields := range index {
@@ -62,31 +79,33 @@ func waybackAttemptPull(uri string /*, wr WriteFlusher*/) (bool, error) {
 		return false, nil // not found
 	}
 
-	retrieveQ := fmt.Sprintf("https://web.archive.org/web/%s/%s", targetTimestamp, url.PathEscape(uri))
-	resp, err := http.Get(retrieveQ)
-	if err != nil {
-		return false, errors.Wrap(err, "contact archive")
-	}
-	fmt.Println(retrieveQ, resp.Status)
-	resp.Body.Close()
-	return true, nil
-}
-
-func waybackGetIndex(uri string) ([][]string, error) {
-	apiQ := fmt.Sprintf("https://web.archive.org/cdx/search/cdx?url=%s&limit=50&matchType=exact",
-		url.QueryEscape(uri),
-	)
-	resp, err := http.Get(apiQ) // TODO custom client
-	if err != nil {
-		return nil, errors.Wrap(err, "contact archive")
-	}
-	defer resp.Body.Close()
-	var records [][]string
-	sc := bufio.NewScanner(resp.Body)
-	for sc.Scan() {
-		records = append(records, strings.Fields(sc.Text()))
-	}
-	return records, errors.Wrap(sc.Err(), "read archive cdx")
+	retrieveQ := fmt.Sprintf("https://web.archive.org/web/%sif_/%s", targetTimestamp, url.PathEscape(uri))
+	for {
+		req, err := http.NewRequest("GET", retrieveQ, nil)
+		if err != nil {
+			return false, errors.Wrapf(err, "wayback %s: parse url", uri)
+		}
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			return false, errors.Wrapf(err, "wayback %s: contact archive", uri)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			fmt.Println("non-200 from wayback, please debug", resp)
+			return false, nil
+		}
+		reqRec, respRec, err := warc.NewRequestResponseRecords(warc.CaptureHelper{}, req, resp)
+		if err != nil {
+			return false, errors.Wrapf(err, "wayback %s: prepare warc", uri)
+		}
+		reqRec.Headers[warc.FieldNameWARCTargetURI] = uri
+		respRec.Headers[warc.FieldNameWARCTargetURI] = uri
+		err = g.warcWriter.WriteRecordsAndCDX(&reqRec, &respRec, resp)
+		if err != nil {
+			return false, errors.Wrapf(err, "wayback %s: save warc", uri)
+		}
+		return true, nil
+	} // loop for redirects I think
 }
 
 // TODO: rewrite cdx?
