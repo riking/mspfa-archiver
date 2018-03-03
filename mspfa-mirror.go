@@ -277,7 +277,7 @@ func downloadResources(dir advDir) error {
 		"--user-agent", userAgent,
 		"--concurrent", "2",
 		"--warc-file", dir.File("resources"),
-		"--warc-append", "--warc-cdx",
+		"--warc-append", /* "--warc-cdx", */
 		"--warc-tempdir", string(dir),
 		"--page-requisites",
 		"--span-hosts-allow", "page-requisites",
@@ -974,28 +974,51 @@ func main() {
 
 	downloadFailed := false
 	if *download {
-		err = downloadResources(folder)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%+v\n", err)
-			downloadFailed = true
-		}
-		err = downloadVideos(folder)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%+v\n", err)
-			downloadFailed = true
-		}
-		err = downloadPhotobucketURLs(folder)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%+v\n", err)
-			downloadFailed = true
-		}
-	}
 
-	// TODO move into *download
-	err = waybackPull404s(folder)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%+v\n", err)
-		downloadFailed = true
+		// err = downloadResources(folder)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			downloadFailed = true
+		}
+		// err = downloadVideos(folder)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			downloadFailed = true
+		}
+		// need to open warc in append mode, after wpull is done
+		warcWriter, err := prepareWARCWriter(nil, folder)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			os.Exit(1) // fatal
+		}
+
+		// err = downloadPhotobucketURLs(warcWriter, folder)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			downloadFailed = true
+		}
+
+		cdxWriter, err := prepareCDXWriter(folder)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			os.Exit(1) // fatal
+		}
+
+		// this step writes the CDX file
+		info, err := waybackFind404s(cdxWriter, folder)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			downloadFailed = true
+		}
+		warcWriter.SetCDXWriter(cdxWriter)
+		err = waybackPull404s(warcWriter, info, folder)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			downloadFailed = true
+		}
+
+		warcWriter.Close()
+		cdxWriter.Close()
 	}
 
 	if downloadFailed && !*forceUpload {

@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/textproto"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 
+	"github.com/datatogether/warc"
 	"github.com/pkg/errors"
 )
 
@@ -22,11 +22,7 @@ type warcRespMeta struct {
 	foundSuccess bool
 }
 
-func waybackPull404s(dir advDir) error {
-	info, err := waybackFind404s(dir.File("resources.warc.gz"))
-	if err != nil {
-		return err
-	}
+func waybackPull404s(wr *warcWriter, info map[string]warcRespMeta, dir advDir) error {
 
 	// wr := prepareWARCWriter(dir)
 
@@ -94,87 +90,108 @@ func waybackGetIndex(uri string) ([][]string, error) {
 }
 
 // TODO: rewrite cdx?
-func waybackFind404s(filename string) (map[string]warcRespMeta, error) {
-	warcGZ, err := os.Open(filename)
+func waybackFind404s(cdxWriter *cdxWriter, dir advDir) (map[string]warcRespMeta, error) {
+	warcF, err := os.Open(dir.File("resources.warc.gz"))
 	if err != nil {
 		return nil, err
 	}
-	warc, err := gzip.NewReader(warcGZ)
+	warcBR := bufio.NewReader(warcF)
+	warcR, err := gzip.NewReader(warcBR)
 	if err != nil {
-		return nil, errors.Wrapf(err, "find 404s %s", filename)
+		return nil, errors.Wrap(err, "open warc")
 	}
-	bufr := bufio.NewReader(warc)
-	textp := textproto.NewReader(bufr)
+
+	readPos := func() int64 {
+		pos_, err := warcF.Seek(0, io.SeekCurrent)
+		if err != nil {
+			panic(errors.Wrap(err, "writing cdx: reading warc: seek current"))
+		}
+		return pos_ - int64(warcBR.Buffered())
+	}
 
 	var failingResponses = make(map[string]warcRespMeta)
+	var startPos, endPos int64
 	for {
-		err = checkWARCEntry(bufr, textp, failingResponses)
+		warcR.Multistream(false)
+
+		startPos = readPos()
+		record, err := readWARCRecord(warcR)
 		if err == io.EOF {
-			fmt.Println("got eof")
-			break
+			goto _continue
 		} else if err != nil {
-			fmt.Println("got err", err)
-			return nil, err
+			return nil, errors.Wrapf(err, "writing cdx: reading warc\nrecord: %v", record)
+		}
+		endPos = readPos()
+
+		fmt.Println("processing warc record", record.Headers[warc.FieldNameWARCRecordID])
+		err = processWARCRecord(&record, cdxWriter, startPos, endPos, failingResponses)
+		if err != nil {
+			return nil, errors.Wrapf(err, "writing cdx: process warc\nrecord: %v", record)
+		}
+
+	_continue:
+		err = warcR.Reset(warcBR)
+		if err == io.EOF {
+			break // real EOF
+		} else if err != nil {
+			return nil, errors.Wrap(err, "writing cdx: reading warc")
 		}
 	}
 
 	return failingResponses, nil
 }
 
-func checkWARCEntry(bufr *bufio.Reader, textp *textproto.Reader, infoMap map[string]warcRespMeta) error {
-	warcProtoLine, err := textp.ReadLine()
-	for err == nil && warcProtoLine == "" {
-		// skip empty lines
-		warcProtoLine, err = textp.ReadLine()
-	}
-	if err == io.EOF {
-		return err
-	} else if err != nil {
-		return errors.Wrap(err, "read WARC header")
-	}
-	if !strings.HasPrefix(warcProtoLine, "WARC/") {
-		return errors.Errorf("bad WARC header, got %s", warcProtoLine)
-	}
-	warcHeader, err := textp.ReadMIMEHeader()
+func readWARCRecord(r io.Reader) (warc.Record, error) {
+	recReader, err := warc.NewReader(r)
 	if err != nil {
-		return errors.Wrap(err, "read WARC header")
+		return warc.Record{}, err
 	}
-	recordType := warcHeader.Get("WARC-Type")
-	contentLength := warcHeader.Get("Content-Length")
-	length, err := strconv.Atoi(contentLength)
+
+	record, err := recReader.Read()
 	if err != nil {
-		return errors.Wrap(err, "read content length")
+		return record, err
 	}
-	switch recordType {
-	case "warcinfo", "request", "resource", "metadata", "revisit", "conversion", "continuation":
-		bufr.Discard(length)
-	case "response":
-		httpContent := make([]byte, length)
-		io.ReadFull(bufr, httpContent)
-		httpB := bufio.NewReader(bytes.NewReader(httpContent))
-		resp, err := http.ReadResponse(httpB, nil)
-		if err != nil {
-			return errors.Wrap(err, "read response")
-		}
-		target := warcHeader.Get("WARC-Target-URI")
-		if resp.StatusCode >= 400 {
-			fmt.Println("Found failing response for", target, "code", resp.StatusCode)
-			_, ok := infoMap[target]
-			if !ok {
-				infoMap[target] = warcRespMeta{
-					failing:    true,
-					failedResp: resp,
-				}
-			}
-		} else {
-			existing, ok := infoMap[target]
-			if ok {
-				fmt.Println("Found later success for", target, "code", resp.StatusCode)
-				existing.foundSuccess = true
-				infoMap[target] = existing
+	expectNoRecord, expectEOF := recReader.Read()
+	if expectEOF != io.EOF {
+		fmt.Println("[BUGCHECK] gzip not properly segmented")
+		fmt.Println("Already read record:", record.Headers, len(record.Content.Bytes()))
+		fmt.Println("Extra read record:", expectNoRecord)
+		fmt.Println("Extra read err:", expectEOF)
+		os.Exit(3)
+	}
+	return record, err
+}
+
+func processWARCRecord(rec *warc.Record, cdxWriter *cdxWriter, startPos, endPos int64, infoMap map[string]warcRespMeta) error {
+	if rec.Type != warc.RecordTypeResponse {
+		return nil
+	}
+
+	httpB := bufio.NewReader(bytes.NewReader(rec.Content.Bytes()))
+	resp, err := http.ReadResponse(httpB, nil)
+	if err != nil {
+		return errors.Wrap(err, "read response")
+	}
+	target := rec.Headers.Get("WARC-Target-URI")
+	if resp.StatusCode >= 400 {
+		fmt.Println("Found failing response for", target, "code", resp.StatusCode)
+		_, ok := infoMap[target]
+		if !ok {
+			infoMap[target] = warcRespMeta{
+				failing:    true,
+				failedResp: resp,
 			}
 		}
+	} else {
+		existing, ok := infoMap[target]
+		if ok {
+			fmt.Println("Found later success for", target, "code", resp.StatusCode)
+			existing.foundSuccess = true
+			infoMap[target] = existing
+		}
 	}
+
+	cdxWriter.CDXAddRecord(rec, resp, startPos, endPos)
 	return nil
 }
 

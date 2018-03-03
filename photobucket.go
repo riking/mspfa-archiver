@@ -133,7 +133,7 @@ func downloadPhotobucket(uri string, httpClient *http.Client, dir advDir) error 
 	return errors.Wrapf(f.Close(), "downloading %s", uri)
 }
 
-func downloadPhotobucketURLs(dir advDir) error {
+func downloadPhotobucketURLs(warcWriter *warcWriter, dir advDir) error {
 	list, err := os.Open(dir.File("photobucket.txt"))
 	if os.IsNotExist(err) {
 		return nil

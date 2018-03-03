@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"mime"
 	"net"
 	"net/http"
@@ -21,21 +22,66 @@ import (
 
 type warcWriter struct {
 	WARCWriter *warc.Writer
-	CDXWriter  *csv.Writer
 	WARCInfoID string
 
-	warcFile *os.File
-	warcGz   *gzip.Writer
-	cdxFile  *os.File
+	warcFile     *os.File
+	warcGz       *gzip.Writer
+	warcFileName string
 
-	cdxFormat CDXFormat
+	curRecord    *warc.Record
+	curResp      *http.Response
+	lastStartPos int64
+	lastEndPos   int64
+
+	*cdxWriter
 }
 
-func (w *warcWriter) WriteRecordsAndCDX(reqRec, respRec *warc.Record) {
-	if w.WARCInfoID != "" {
-		reqRec.Header.Set(warc.FieldNameWARCWarcinfoID, w.WARCInfoID)
-		respRec.Header.Set(warc.FieldNameWARCWarcinfoID, w.WARCInfoID)
+func (w *warcWriter) SetCDXWriter(cdxWriter *cdxWriter) {
+	w.cdxWriter = cdxWriter
+	w.WARCWriter.RecordCallback = func(rec *warc.Record, startPos int64, endPos int64) {
+		w.cdxWriter.CDXAddRecord(rec, w.curResp, startPos, endPos)
 	}
+}
+
+// Write a WARCInfo record and save its ID as w.WARCInfoID.
+func (w *warcWriter) WriteWarcinfo(rec *warc.Record) error {
+	err := w.WARCWriter.WriteRecord(rec)
+	if err != nil {
+		return err
+	}
+	w.WARCInfoID = rec.Headers.Get(warc.FieldNameWARCWarcinfoID)
+	return nil
+}
+
+// Write a record with no special processing.
+func (w *warcWriter) WriteRecord(rec *warc.Record) error {
+	return w.WARCWriter.WriteRecord(rec)
+}
+
+// Write a request/response pair and CDX line.
+//
+// If the HTTP response object is unavailable, simply pass nil - it will be
+// parsed from the response WARC record.  The body need not be readable.
+func (w *warcWriter) WriteRecordsAndCDX(reqRec, respRec *warc.Record, httpResp *http.Response) error {
+	if w.WARCInfoID != "" {
+		reqRec.Headers.Set(warc.FieldNameWARCWarcinfoID, w.WARCInfoID)
+		respRec.Headers.Set(warc.FieldNameWARCWarcinfoID, w.WARCInfoID)
+	}
+
+	err := w.WARCWriter.WriteRecord(reqRec)
+	if err != nil {
+		return err
+	}
+	w.curRecord = respRec
+	w.curResp = httpResp
+	err = w.WARCWriter.WriteRecord(respRec)
+	if err != nil {
+		return err
+	}
+	if w.cdxWriter != nil && w.cdxWriter.Err() != nil {
+		return w.cdxWriter.Err()
+	}
+	return nil
 }
 
 func (w *warcWriter) Close() error {
@@ -43,12 +89,12 @@ func (w *warcWriter) Close() error {
 	w.warcGz.Flush()
 	w.warcGz.Close()
 	w.warcFile.Close()
-	w.CDXWriter.Flush()
-	w.cdxFile.Close()
+
+	w.cdxWriter.Close()
 	return nil
 }
 
-func prepareWarcWriter(dir advDir) (*warcWriter, error) {
+func prepareWARCWriter(cdxWriter *cdxWriter, dir advDir) (*warcWriter, error) {
 	warcF, err := os.OpenFile(dir.File("resources.warc.gz"), os.O_APPEND|os.O_RDWR, 0)
 	if err != nil {
 		return nil, err
@@ -71,22 +117,87 @@ func prepareWarcWriter(dir advDir) (*warcWriter, error) {
 		WARCWriter: warcW,
 		warcFile:   warcF,
 		warcGz:     warcGZ,
-		CDXWriter:  cdxW,
-		cdxFile:    cdxF,
 
-		// Use the wpull CDX format.
-		// https://github.com/chfoo/wpull/blob/d0a9dffd2f79e62242e5ddb603c5e77e5b012e91/wpull/warc/recorder.py#L425
-		cdxFormat: CDXFormat{
-			'a': 1,
-			'b': 2,
-			'm': 3,
-			's': 4,
-			'k': 5,
-			'S': 6,
-			'V': 7,
-			'g': 8,
-			'u': 9,
-		},
+		cdxWriter: cdxWriter,
+	}, nil
+}
+
+type cdxWriter struct {
+	WARCFileName string
+	csvWriter    *csv.Writer
+	cdxFile      *os.File
+
+	stickyErr error
+
+	cdxFormat CDXFormat
+	cdxLine   []string
+}
+
+// CDXAddRecord writes the WARC record to the CDX file.
+//
+// If the HTTP response object is unavailable, simply pass nil - it will be
+// parsed from the response WARC record.  The body need not be readable.
+func (cw *cdxWriter) CDXAddRecord(rec *warc.Record, httpResp *http.Response, startPos, endPos int64) {
+	if rec.Type != warc.RecordTypeResponse {
+		return
+	}
+	CDXLine(rec, httpResp, cw.cdxFormat, cw.cdxLine)
+	cdxSet(cw.cdxFormat, cw.cdxLine, CDXCompressedOffset, fmt.Sprint(startPos))
+	cdxSet(cw.cdxFormat, cw.cdxLine, CDXCompressedSize, fmt.Sprint(endPos))
+	cdxSet(cw.cdxFormat, cw.cdxLine, CDXArcFileName, cw.WARCFileName)
+
+	fmt.Println(cw.cdxLine)
+	err := cw.csvWriter.Write(cw.cdxLine)
+	if err != nil && cw.stickyErr == nil {
+		cw.stickyErr = err
+	}
+}
+
+func (cw *cdxWriter) Err() error {
+	return cw.stickyErr
+}
+
+func (cw *cdxWriter) Close() error {
+	cw.csvWriter.Flush()
+	err := cw.csvWriter.Error()
+	if err != nil && cw.stickyErr == nil {
+		cw.stickyErr = err
+	}
+	err = cw.cdxFile.Close()
+	if err != nil && cw.stickyErr == nil {
+		cw.stickyErr = err
+	}
+	return cw.stickyErr
+}
+
+func cdxLineToFormat(line string) CDXFormat {
+	format := make(CDXFormat)
+	split := strings.Split(strings.TrimPrefix(line, " CDX "), " ")
+	for idx, str := range split {
+		format[str[0]] = idx
+	}
+	return format
+}
+
+const cdxFormat1 = " CDX a b m s k S V g u" // used by wpull
+const cdxFormat2 = " CDX N b a m s k r M S V g"
+
+func prepareCDXWriter(dir advDir) (*cdxWriter, error) {
+	cdxFile, err := os.Create(dir.File("resources.cdx"))
+	if err != nil {
+		return nil, err
+	}
+	format := cdxLineToFormat(cdxFormat2)
+	io.WriteString(cdxFile, cdxFormat2)
+	io.WriteString(cdxFile, "\n")
+	csvWriter := csv.NewWriter(cdxFile)
+	csvWriter.Comma = ' '
+
+	return &cdxWriter{
+		cdxFile:   cdxFile,
+		csvWriter: csvWriter,
+		cdxFormat: format,
+		cdxLine:   make([]string, len(format)),
 	}, nil
 }
 
@@ -224,14 +335,22 @@ func iaMassagedURL(u1 *url.URL) string {
 // Values should be contiguous.
 type CDXFormat map[byte]int
 
+func cdxSet(format CDXFormat, line []string, key byte, value string) {
+	idx, ok := format[key]
+	if !ok {
+		return
+	}
+	line[idx] = value
+}
+
 // Writes the CDX fields that can be determined from the record into the target
 // array.  Not all fields are implemented or can be implemented, see source for
 // details.  Fields not written are left at their original values.
-func CDXLine(r *warc.Record, format CDXFormat, line []string) error {
+func CDXLine(r *warc.Record, _httpResp *http.Response, format CDXFormat, line []string) error {
 	if r.Type != warc.RecordTypeResponse {
 		return nil
 	}
-	var httpResp *http.Response
+	var httpResp *http.Response = _httpResp
 	var targetURI *url.URL
 	var storedErr error
 
@@ -334,7 +453,7 @@ func CDXLine(r *warc.Record, format CDXFormat, line []string) error {
 			}
 		case CDXResponseCode: // 's'
 			set(idx, strconv.Itoa(getResponse().StatusCode))
-		case CDXUUID:
+		case CDXUUID: // 'u'
 			set(idx, r.Headers[warc.FieldNameWARCRecordID])
 		case CDXUncompressedOffset: // 'v'
 			// must be set by writer
