@@ -15,7 +15,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/datatogether/warc"
 	"github.com/pkg/errors"
 )
 
@@ -72,7 +74,7 @@ func photobucketFileExists(destFile string) (bool, error) {
 	}
 }
 
-func downloadPhotobucket(uri string, httpClient *http.Client, dir advDir) error {
+func (g *downloadG) downloadPhotobucket(uri string, httpClient *http.Client) error {
 	match := photobucketDirectRgx.FindStringSubmatch(uri)
 	if match == nil {
 		match = photobucketDirectHTMLRgx.FindStringSubmatch(uri)
@@ -92,17 +94,10 @@ func downloadPhotobucket(uri string, httpClient *http.Client, dir advDir) error 
 	}
 
 	destination := toRelativeArchiveURL(uri)
-	destFile := dir.File(destination)
+	destFile := g.dir.File(destination)
 	err := os.MkdirAll(filepath.Dir(destFile), 0755)
 	if err != nil {
 		return errors.Wrapf(err, "error creating output folder")
-	}
-	exists, err := photobucketFileExists(destFile)
-	if err != nil {
-		return errors.Wrap(err, "photobucket: check for existing file")
-	} else if exists {
-		// success: already downloaded
-		return nil
 	}
 
 	fmt.Println("Downloading", uri)
@@ -116,25 +111,63 @@ func downloadPhotobucket(uri string, httpClient *http.Client, dir advDir) error 
 	// chrome on iOS "request as desktop" user-agent
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_4) AppleWebKit/600.7.12 (KHTML, like Gecko) Version/8.0.7 Safari/600.7.12")
 
-	//shadow-ignore:httpClient
+	//shadow-ignore: httpClient
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return errors.Wrapf(err, "downloading %s", uri)
 	}
 	defer resp.Body.Close()
+
+	// not bothering to capture remote-IP right now
+	captureHelper := warc.CaptureHelper{}
+
 	if resp.StatusCode != 200 {
 		return errors.Errorf("Error code %s downloading %s", resp.Status, uri)
 	}
-	f, err := os.Create(destFile)
+
+	reqRec, respRec, err := warc.NewRequestResponseRecords(captureHelper, req, resp)
 	if err != nil {
-		return errors.Wrapf(err, "downloading %s", uri)
+		return errors.Wrapf(err, "photobucket: warc prep %s", uri)
 	}
-	io.Copy(f, resp.Body)
-	return errors.Wrapf(f.Close(), "downloading %s", uri)
+	err = g.warcWriter.WriteRecordsAndCDX(&reqRec, &respRec, resp)
+	if err != nil {
+		return errors.Wrapf(err, "photobucket: warc saving %s", uri)
+	}
+	return nil
 }
 
-func downloadPhotobucketURLs(warcWriter *warcWriter, dir advDir) error {
-	list, err := os.Open(dir.File("photobucket.txt"))
+func (g *downloadG) photobucketInfoRecord(uriList []string) error {
+	rec := &warc.Record{
+		Format:  warc.RecordFormatWarc,
+		Type:    warc.RecordTypeWarcInfo,
+		Headers: make(warc.Header),
+		Content: new(bytes.Buffer),
+	}
+	// rec.SetDate()
+	rec.Headers[warc.FieldNameWARCDate] = time.Now().Format(time.RFC3339)
+	id := warc.NewUUID()
+	rec.Headers[warc.FieldNameWARCRecordID] = id
+	rec.Headers[warc.FieldNameWARCWarcinfoID] = id
+	rec.Headers[warc.FieldNameContentType] = "application/warc-fields"
+
+	values := make(http.Header)
+	values.Set("Software", userAgent)
+	values.Set("Format", "WARC File Format 1.0")
+	values.Set("Conformsto", "http://bibnum.bnf.fr/WARC/WARC_ISO_28500_version1_latestdraft.pdf")
+	values.Set("Download-Stage", "photobucket")
+	for _, uri := range uriList {
+		values.Add("Photobucket-Url", uri)
+	}
+	values.Write(rec.Content)
+	rec.Headers[warc.FieldNameWARCBlockDigest] = warc.Sha1Digest(rec.Content.Bytes())
+
+	fmt.Printf("%s\n", rec.Content)
+	rec.Write(os.Stderr)
+	return errors.Wrap(g.warcWriter.WriteWarcinfo(rec), "photobucket: warcinfo record")
+}
+
+func (g *downloadG) downloadPhotobucketURLs() error {
+	list, err := os.Open(g.dir.File("photobucket.txt"))
 	if os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
@@ -153,18 +186,39 @@ func downloadPhotobucketURLs(warcWriter *warcWriter, dir advDir) error {
 		return http.ErrUseLastResponse
 	}
 
+	var uriList []string
+
 	failed := false
 	for sc.Scan() {
-		url := sc.Text()
-		err = downloadPhotobucket(url, pbClient, dir)
+		uri := sc.Text()
+		if g.downloadedURLs[uri] {
+			// success: already downloaded
+			continue
+		}
+		uriList = append(uriList, uri)
+	}
+	if sc.Err() != nil {
+		return errors.Wrap(err, "photobucket.txt")
+	}
+	if len(uriList) == 0 {
+		// Nothing to do
+		return nil
+	}
+
+	err = g.photobucketInfoRecord(uriList)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		g.warcWriter.WARCInfoID = ""
+	}()
+	for _, uri := range uriList {
+		err = g.downloadPhotobucket(uri, pbClient)
 		if err != nil {
 			fmt.Println(err)
 			failed = true
 			continue
 		}
-	}
-	if sc.Err() != nil {
-		return errors.Wrap(err, "photobucket")
 	}
 
 	if failed {

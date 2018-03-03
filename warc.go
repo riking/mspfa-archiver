@@ -449,7 +449,7 @@ func CDXLine(r *warc.Record, _httpResp *http.Response, format CDXFormat, line []
 			}
 			set(idx, host)
 		case CDXDigest: // 'k'
-			set(idx, r.Headers[warc.FieldNameWARCPayloadDigest])
+			set(idx, strings.TrimPrefix(r.Headers[warc.FieldNameWARCPayloadDigest], "sha1:"))
 		case CDXMimeType: // 'm'
 			mediatype, _, _ := mime.ParseMediaType(getResponse().Header.Get("Content-Type"))
 			set(idx, mediatype)

@@ -90,13 +90,13 @@ func waybackGetIndex(uri string) ([][]string, error) {
 }
 
 // TODO: rewrite cdx?
-func waybackFind404s(cdxWriter *cdxWriter, dir advDir) (map[string]warcRespMeta, error) {
+func (g *downloadG) waybackFind404s() (map[string]warcRespMeta, error) {
 	relFilename := "resources.warc.gz"
-	warcF, err := os.Open(dir.File(relFilename))
+	warcF, err := os.Open(g.dir.File(relFilename))
 	if err != nil {
 		return nil, err
 	}
-	cdxWriter.WARCFileName = relFilename
+	g.cdxWriter.WARCFileName = relFilename
 	warcBR := bufio.NewReader(warcF)
 
 	readPos := func() int64 {
@@ -129,7 +129,7 @@ func waybackFind404s(cdxWriter *cdxWriter, dir advDir) (map[string]warcRespMeta,
 		endPos = readPos()
 
 		fmt.Println("processing warc record", record.Headers[warc.FieldNameWARCRecordID])
-		err = processWARCRecord(&record, cdxWriter, startPos, endPos, failingResponses)
+		err = g.processWARCRecord(&record, startPos, endPos, failingResponses)
 		if err != nil {
 			return nil, errors.Wrapf(err, "writing cdx: process warc\nrecord: %v", record)
 		}
@@ -168,7 +168,7 @@ func readWARCRecord(r io.Reader) (warc.Record, error) {
 	return record, err
 }
 
-func processWARCRecord(rec *warc.Record, cdxWriter *cdxWriter, startPos, endPos int64, infoMap map[string]warcRespMeta) error {
+func (g *downloadG) processWARCRecord(rec *warc.Record, startPos, endPos int64, infoMap map[string]warcRespMeta) error {
 	if rec.Type != warc.RecordTypeResponse {
 		return nil
 	}
@@ -188,6 +188,7 @@ func processWARCRecord(rec *warc.Record, cdxWriter *cdxWriter, startPos, endPos 
 				failedResp: resp,
 			}
 		}
+		g.downloadedURLs[target] = false
 	} else {
 		existing, ok := infoMap[target]
 		if ok {
@@ -195,9 +196,10 @@ func processWARCRecord(rec *warc.Record, cdxWriter *cdxWriter, startPos, endPos 
 			existing.foundSuccess = true
 			infoMap[target] = existing
 		}
+		g.downloadedURLs[target] = true
 	}
 
-	cdxWriter.CDXAddRecord(rec, resp, startPos, endPos)
+	g.cdxWriter.CDXAddRecord(rec, resp, startPos, endPos)
 	return nil
 }
 

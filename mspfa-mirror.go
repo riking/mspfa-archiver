@@ -102,6 +102,17 @@ type OutputConf struct {
 	LocalScript  bool
 }
 
+type downloadG struct {
+	failed bool
+	dir    advDir
+
+	cdxWriter  *cdxWriter
+	warcWriter *warcWriter
+
+	// list filled by the CDX creation
+	downloadedURLs map[string]bool
+}
+
 type RscType int
 
 const (
@@ -974,45 +985,52 @@ func main() {
 
 	downloadFailed := false
 	if *download {
-
-		// err = downloadResources(folder)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%+v\n", err)
-			downloadFailed = true
-		}
-		// err = downloadVideos(folder)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%+v\n", err)
-			downloadFailed = true
-		}
-		// need to open warc in append mode, after wpull is done
-		warcWriter, err := prepareWARCWriter(nil, folder)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%+v\n", err)
-			os.Exit(1) // fatal
+		g := &downloadG{
+			dir:    folder,
+			failed: false,
 		}
 
-		// err = downloadPhotobucketURLs(warcWriter, folder)
+		err = downloadResources(folder)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
 			downloadFailed = true
 		}
 
+		fmt.Println("writing CDX file")
 		cdxWriter, err := prepareCDXWriter(folder)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
 			os.Exit(1) // fatal
 		}
-
-		// this step writes the CDX file
-		fmt.Println("writing CDX file")
-		info, err := waybackFind404s(cdxWriter, folder)
+		g.cdxWriter = cdxWriter
+		g.downloadedURLs = make(map[string]bool)
+		_, err = g.waybackFind404s()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
 			downloadFailed = true
 		}
-		warcWriter.SetCDXWriter(cdxWriter)
-		err = waybackPull404s(warcWriter, info, folder)
+
+		// need to open warc in append mode, after wpull is done
+		warcWriter, err := prepareWARCWriter(cdxWriter, folder)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			os.Exit(1) // fatal
+		}
+		g.warcWriter = warcWriter
+
+		err = g.downloadPhotobucketURLs()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			downloadFailed = true
+		}
+
+		err = waybackPull404s(warcWriter, nil, folder)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			downloadFailed = true
+		}
+
+		// err = downloadVideos(folder)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
 			downloadFailed = true
