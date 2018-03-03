@@ -128,7 +128,6 @@ func (g *downloadG) waybackFind404s() (map[string]warcRespMeta, error) {
 		}
 		endPos = readPos()
 
-		fmt.Println("processing warc record", record.Headers[warc.FieldNameWARCRecordID])
 		err = g.processWARCRecord(&record, startPos, endPos, failingResponses)
 		if err != nil {
 			return nil, errors.Wrapf(err, "writing cdx: process warc\nrecord: %v", record)

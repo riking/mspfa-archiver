@@ -167,7 +167,7 @@ func (cw *cdxWriter) CDXAddRecord(rec *warc.Record, httpResp *http.Response, sta
 	cdxSet(cw.cdxFormat, cw.cdxLine, CDXCompressedSize, fmt.Sprint(endPos-startPos))
 	cdxSet(cw.cdxFormat, cw.cdxLine, CDXArcFileName, cw.WARCFileName)
 
-	fmt.Println(cw.cdxLine)
+	// fmt.Println(cw.cdxLine)
 	err := cw.csvWriter.Write(cw.cdxLine)
 	if err != nil && cw.stickyErr == nil {
 		cw.stickyErr = err

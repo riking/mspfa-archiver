@@ -280,6 +280,14 @@ statcontinue:
 func downloadResources(dir advDir) error {
 	os.MkdirAll(dir.File("linked"), 0755)
 
+	stat, err := os.Stat(dir.File("urls.txt"))
+	if err != nil {
+		return err
+	}
+	if stat.Size() == 0 {
+		return nil // no normal subresources
+	}
+
 	// ../../wpull --warc-file ../resources --warc-append --warc-cdx --wait 0.1 --page-requisites --tries 3 --retry-connrefused --retry-dns-error --database ../wpull.db --output-file ../wpull-$(date +%s).log --user-agent "MSPFA Archiver/0.8" --span-hosts-allow page-requisites -l 3
 	cmd := exec.Command("./wpull",
 		"--database", dir.File("wpull.db"),
