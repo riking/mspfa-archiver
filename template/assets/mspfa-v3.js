@@ -161,8 +161,16 @@
 						obj[propMap[i]] = split[i];
 					}
 				}
+
 				if (obj.ourl) {
-					cdxIndex[obj.ourl] = cdxIndex[obj.ourl] || obj;
+					if (cdxIndex[obj.ourl] && cdxIndex[obj.ourl].code >= 200 && cdxIndex[obj.ourl].code < 400) {
+						// do not replace
+					} else {
+						cdxIndex[obj.ourl] = obj;
+					}
+				} else {
+					// corrupt entry I guess?
+					console.warn("CDX entry without original URL field", split);
 				}
 			};
 			var textdec = new TextDecoder('utf-8');
