@@ -904,6 +904,9 @@ func detectExistingItem(storyID string) ([]string, error) {
 }
 
 func checkIAIdentifier(storyID string) {
+	if *iaIdentifier == "" {
+		return
+	}
 	identifiers, err := detectExistingItem(storyID)
 	fmt.Println("existing identifiers:", identifiers)
 	if *iaIdentifier == "auto" {
