@@ -76,7 +76,7 @@ func (g *downloadG) waybackPull404s(info map[string]warcRespMeta) error {
 			fmt.Fprintf(logPut, "%v No saved copy of: %s\n", time.Now().UTC().Format(time.RFC3339), uri)
 		}
 	}
-	fmt.Fprintf(logPut, "%v End", time.Now().UTC().Format(time.RFC3339))
+	fmt.Fprintf(logPut, "%v End\n", time.Now().UTC().Format(time.RFC3339))
 
 	// Write log record
 	rec := &warc.Record{
@@ -204,6 +204,13 @@ func (g *downloadG) find404s() (map[string]warcRespMeta, error) {
 }
 
 func (g *downloadG) find404ScanWARC(filename string, failingResponses map[string]warcRespMeta) error {
+	stat, err := os.Stat(g.dir.File(filename))
+	if err != nil {
+		return errors.Wrap(err, "find404: stat")
+	} else if stat.Size() == 0 {
+		// file is empty
+		return nil
+	}
 	warcF, err := os.Open(g.dir.File(filename))
 	if os.IsNotExist(err) {
 		return nil
@@ -285,6 +292,7 @@ func readWARCRecord(r io.Reader) (warc.Record, error) {
 var known404Redirects = []string{
 	"http://tinypic.com/images/404.gif",
 	"https://tinypic.com/images/404.gif",
+	"https://imageshack.com/",
 }
 
 func (g *downloadG) processWARCRecord(rec *warc.Record, startPos, endPos int64, infoMap map[string]warcRespMeta) error {
