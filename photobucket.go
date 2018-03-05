@@ -144,7 +144,7 @@ func (g *downloadG) photobucketInfoRecord(uriList []string) error {
 		Content: new(bytes.Buffer),
 	}
 	// rec.SetDate()
-	rec.Headers[warc.FieldNameWARCDate] = time.Now().Format(time.RFC3339)
+	rec.Headers[warc.FieldNameWARCDate] = time.Now().Format(warc.TimeFormat)
 	id := warc.NewUUID()
 	rec.Headers[warc.FieldNameWARCRecordID] = id
 	rec.Headers[warc.FieldNameWARCWarcinfoID] = id
