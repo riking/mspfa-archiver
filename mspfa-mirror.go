@@ -168,7 +168,7 @@ var httpClient *http.Client
 const stampFormat = "20060102150405"
 
 //const userAgent = "Mozilla/5.0 (Archival Script) AppleWebKit/600.7.12 (KHTML, like Gecko) Safari/600.7.12 MSPFA-Archiver/1.1"
-const userAgent = "MSPFA-Archiver/1.1"
+const userAgent = "MSPFA-Archiver/1.2"
 
 func decodeJSON(r io.Reader, v interface{}) error {
 	dec := json.NewDecoder(r)
@@ -758,6 +758,10 @@ func buildResourceList(urlChan chan Rsc) map[Rsc]struct{} {
 		u, err := url.Parse(strings.TrimSpace(resource.U))
 		if err != nil {
 			fmt.Println(resource, err)
+			continue
+		}
+		if u.Scheme == "blob" {
+			// ... sigh. Skip it
 			continue
 		}
 		u = mspfaBaseURL.ResolveReference(u)

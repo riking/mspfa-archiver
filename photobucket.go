@@ -215,10 +215,12 @@ func (g *downloadG) downloadPhotobucketURLs() error {
 	for _, uri := range uriList {
 		err = g.downloadPhotobucket(uri, pbClient)
 		if err != nil {
+			g.downloadedURLs[uri] = false
 			fmt.Println(err)
 			failed = true
 			continue
 		}
+		g.downloadedURLs[uri] = true
 	}
 
 	if failed {
