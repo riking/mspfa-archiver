@@ -298,6 +298,7 @@ func getFilesXML() (*archiveFilesXML, error) {
 }
 
 func uploadItem(story *StoryJSON, dir advDir) error {
+	fmt.Println("Uploading item", *iaIdentifier)
 	sharedHeaders := calculateArchiveMetadata(story, dir)
 	sharedHeaders.Set("User-Agent", userAgent)
 	sizeSum, err := sumItemSize(dir)

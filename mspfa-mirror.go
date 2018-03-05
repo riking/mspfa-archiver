@@ -761,7 +761,7 @@ func buildResourceList(urlChan chan Rsc) map[Rsc]struct{} {
 			continue
 		}
 		u = mspfaBaseURL.ResolveReference(u)
-		if u.Host == "mspfanadventures.com" {
+		if strings.HasSuffix(u.Host, "mspfanadventures.com") || strings.HasSuffix(u.Host, "mspfanventures.com") {
 			u.Host = "mspfa.com"
 		}
 		resource.U = u.String()

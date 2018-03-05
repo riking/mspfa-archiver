@@ -118,6 +118,7 @@ func (g *downloadG) waybackFind404s() (map[string]warcRespMeta, error) {
 	} else if err != nil {
 		return nil, err
 	}
+	defer warcF.Close()
 	g.cdxWriter.WARCFileName = relFilename
 	warcBR := bufio.NewReader(warcF)
 
@@ -136,6 +137,7 @@ func (g *downloadG) waybackFind404s() (map[string]warcRespMeta, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "open warc")
 	}
+	defer warcR.Close()
 
 	for {
 		warcR.Multistream(false)
@@ -164,6 +166,25 @@ func (g *downloadG) waybackFind404s() (map[string]warcRespMeta, error) {
 		}
 	}
 
+	// Find URLs that have no WARC entry - e.g. DNS failures
+	urlF, err := os.Open(g.dir.File("urls.txt"))
+	if err != nil {
+		return nil, errors.Wrap(err, "read urls.txt")
+	}
+	defer urlF.Close()
+	sc := bufio.NewScanner(urlF)
+	for sc.Scan() {
+		uri := sc.Text()
+		_, ok := g.downloadedURLs[uri]
+		if !ok {
+			fmt.Println("found missing file", uri)
+			g.downloadedURLs[uri] = false
+		}
+	}
+	if sc.Err() != nil {
+		return nil, errors.Wrap(err, "read urls.txt")
+	}
+
 	return failingResponses, nil
 }
 
@@ -188,6 +209,11 @@ func readWARCRecord(r io.Reader) (warc.Record, error) {
 	return record, err
 }
 
+var known404Redirects = []string{
+	"http://tinypic.com/images/404.gif",
+	"https://tinypic.com/images/404.gif",
+}
+
 func (g *downloadG) processWARCRecord(rec *warc.Record, startPos, endPos int64, infoMap map[string]warcRespMeta) error {
 	if rec.Type != warc.RecordTypeResponse {
 		return nil
@@ -209,6 +235,22 @@ func (g *downloadG) processWARCRecord(rec *warc.Record, startPos, endPos int64, 
 			}
 		}
 		g.downloadedURLs[target] = false
+	} else if resp.StatusCode >= 300 {
+		// Redirect
+		loc := resp.Header.Get("Location")
+		found := false
+		for _, v := range known404Redirects {
+			if loc == v {
+				found = true
+				break
+			}
+		}
+		if found {
+			fmt.Println("Found failing 3xx for", target, "code", resp.StatusCode, resp)
+			g.downloadedURLs[target] = false
+		} else {
+			g.downloadedURLs[target] = true
+		}
 	} else {
 		existing, ok := infoMap[target]
 		if ok {
