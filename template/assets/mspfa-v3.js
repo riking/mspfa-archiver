@@ -263,8 +263,11 @@
 		warcReqPending = true; // chrome bug 770694
 		requests++;
 		loading.classList.add("active");
-		// TODO - use cdx.filename to have multiple WARCs
-		return fetch("./resources.warc.gz", { headers: headers }).then(function(response) {
+		var warcURL = "./resources.warc.gz";
+		if (cdxData.warcfile && cdxData.warcfile !== "-") {
+			warcURL = cdxData.warcfile;
+		}
+		return fetch(warcURL, { headers: headers }).then(function(response) {
 			if (response.status !== 206) {
 				throw "Bad response status, expected 206 Partial Content";
 			}
