@@ -110,9 +110,12 @@ func (g *downloadG) waybackAttemptPull(uri string) (bool, error) {
 
 // TODO: rewrite cdx?
 func (g *downloadG) waybackFind404s() (map[string]warcRespMeta, error) {
+	var failingResponses = make(map[string]warcRespMeta)
 	relFilename := "resources.warc.gz"
 	warcF, err := os.Open(g.dir.File(relFilename))
-	if err != nil {
+	if os.IsNotExist(err) {
+		return failingResponses, nil
+	} else if err != nil {
 		return nil, err
 	}
 	g.cdxWriter.WARCFileName = relFilename
@@ -134,7 +137,6 @@ func (g *downloadG) waybackFind404s() (map[string]warcRespMeta, error) {
 		return nil, errors.Wrap(err, "open warc")
 	}
 
-	var failingResponses = make(map[string]warcRespMeta)
 	for {
 		warcR.Multistream(false)
 
