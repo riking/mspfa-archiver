@@ -205,16 +205,16 @@ func (g *downloadG) find404s() (map[string]warcRespMeta, error) {
 
 func (g *downloadG) find404ScanWARC(filename string, failingResponses map[string]warcRespMeta) error {
 	stat, err := os.Stat(g.dir.File(filename))
-	if err != nil {
+	if os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
 		return errors.Wrap(err, "find404: stat")
 	} else if stat.Size() == 0 {
 		// file is empty
 		return nil
 	}
 	warcF, err := os.Open(g.dir.File(filename))
-	if os.IsNotExist(err) {
-		return nil
-	} else if err != nil {
+	if err != nil {
 		return errors.Wrap(err, "find404")
 	}
 	defer warcF.Close()
