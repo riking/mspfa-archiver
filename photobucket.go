@@ -156,13 +156,11 @@ func (g *downloadG) photobucketInfoRecord(uriList []string) error {
 	values.Set("Conformsto", "http://bibnum.bnf.fr/WARC/WARC_ISO_28500_version1_latestdraft.pdf")
 	values.Set("Download-Stage", "photobucket")
 	for _, uri := range uriList {
-		values.Add("Photobucket-Url", uri)
+		values.Add("Target-Url", uri)
 	}
 	values.Write(rec.Content)
 	rec.Headers[warc.FieldNameWARCBlockDigest] = warc.Sha1Digest(rec.Content.Bytes())
 
-	fmt.Printf("%s\n", rec.Content)
-	rec.Write(os.Stderr)
 	return errors.Wrap(g.warcWriter.WriteWarcinfo(rec), "photobucket: warcinfo record")
 }
 

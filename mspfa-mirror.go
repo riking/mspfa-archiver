@@ -1029,7 +1029,7 @@ func main() {
 		}
 
 		// need to open warc in append mode, after wpull is done
-		warcWriter, err := prepareWARCWriter(cdxWriter, folder)
+		warcWriter, err := prepareWARCWriter(cdxWriter, warcModeResources, folder)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
 			os.Exit(1) // fatal
@@ -1042,11 +1042,20 @@ func main() {
 			downloadFailed = true
 		}
 
+		waybackWarc, err := prepareWARCWriter(cdxWriter, warcModeWayback, folder)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			os.Exit(1) // fatal
+		}
+		g.warcWriter = waybackWarc
+		g.cdxWriter.WARCFileName = "wayback.warc.gz"
 		err = g.waybackPull404s(nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
 			downloadFailed = true
 		}
+		g.warcWriter = warcWriter
+		g.cdxWriter.WARCFileName = "resources.warc.gz"
 
 		err = downloadVideos(folder)
 		if err != nil {

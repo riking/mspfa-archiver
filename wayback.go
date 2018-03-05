@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/datatogether/warc"
 	"github.com/pkg/errors"
@@ -22,6 +23,33 @@ type warcRespMeta struct {
 	foundSuccess bool
 }
 
+func (g *downloadG) waybackWriteWarcinfo(uriList []string) error {
+	rec := &warc.Record{
+		Format:  warc.RecordFormatWarc,
+		Type:    warc.RecordTypeWarcInfo,
+		Headers: make(warc.Header),
+		Content: new(bytes.Buffer),
+	}
+	rec.Headers[warc.FieldNameWARCDate] = time.Now().Format(warc.TimeFormat)
+	id := warc.NewUUID()
+	rec.Headers[warc.FieldNameWARCRecordID] = id
+	rec.Headers[warc.FieldNameWARCWarcinfoID] = id
+	rec.Headers[warc.FieldNameContentType] = "application/warc-fields"
+
+	values := make(http.Header)
+	values.Set("Software", userAgent)
+	values.Set("Format", "WARC File Format 1.0")
+	values.Set("Conformsto", "http://bibnum.bnf.fr/WARC/WARC_ISO_28500_version1_latestdraft.pdf")
+	values.Set("Download-Stage", "wayback-rescue")
+	for _, uri := range uriList {
+		values.Add("Target-Url", uri)
+	}
+	values.Write(rec.Content)
+	rec.Headers[warc.FieldNameWARCBlockDigest] = warc.Sha1Digest(rec.Content.Bytes())
+
+	return errors.Wrap(g.warcWriter.WriteWarcinfo(rec), "wayback: warcinfo record")
+}
+
 func (g *downloadG) waybackPull404s(info map[string]warcRespMeta) error {
 	var list404s []string
 	for uri, ok := range g.downloadedURLs {
@@ -29,14 +57,46 @@ func (g *downloadG) waybackPull404s(info map[string]warcRespMeta) error {
 			list404s = append(list404s, uri)
 		}
 	}
-
-	for _, uri := range list404s {
-		ok, err := g.waybackAttemptPull(uri)
-		fmt.Println(uri, ok, err)
+	if len(list404s) == 0 {
+		return nil
 	}
 
-	return nil
+	g.waybackWriteWarcinfo(list404s)
+	var log bytes.Buffer
+	logPut := io.MultiWriter(&log, os.Stdout)
+
+	fmt.Fprintf(logPut, "%v Starting attempt to retrieve %d URLs", time.Now(), len(list404s))
+	for _, uri := range list404s {
+		ok, err := g.waybackAttemptPull(logPut, uri)
+		if err != nil {
+			fmt.Fprintf(logPut, "%v Error on %s: %s", time.Now(), uri, err)
+		} else if ok {
+			fmt.Fprintf(logPut, "%v Retrieved: %s", time.Now(), uri)
+		} else {
+			fmt.Fprintf(logPut, "%v No saved copy of: %s", time.Now(), uri)
+		}
+	}
+	fmt.Fprintf(logPut, "%v End", time.Now())
+
+	// Write log record
+	rec := &warc.Record{
+		Format:  warc.RecordFormatWarc,
+		Type:    warc.RecordTypeResource,
+		Headers: make(warc.Header),
+		Content: &log,
+	}
+	rec.Headers[warc.FieldNameWARCDate] = time.Now().Format(warc.TimeFormat)
+	rec.Headers[warc.FieldNameWARCRecordID] = warc.NewUUID()
+	rec.Headers[warc.FieldNameWARCWarcinfoID] = g.warcWriter.WARCInfoID
+	rec.Headers[warc.FieldNameContentType] = "text/plain"
+	rec.Headers[warc.FieldNameWARCTargetURI] = "urn:X-mspfarchiver:log"
+
+	rec.Headers[warc.FieldNameWARCBlockDigest] = warc.Sha1Digest(rec.Content.Bytes())
+	err := errors.Wrap(g.warcWriter.WriteRecord(rec), "wayback: warc log record")
+
+	return err
 }
+
 func waybackGetIndex(uri string) ([][]string, error) {
 	apiQ := fmt.Sprintf("https://web.archive.org/cdx/search/cdx?url=%s&limit=50&matchType=exact",
 		url.QueryEscape(uri),
@@ -54,7 +114,7 @@ func waybackGetIndex(uri string) ([][]string, error) {
 	return records, errors.Wrap(sc.Err(), "read archive cdx")
 }
 
-func (g *downloadG) waybackAttemptPull(uri string) (bool, error) {
+func (g *downloadG) waybackAttemptPull(log io.Writer, uri string) (bool, error) {
 	index, err := waybackGetIndex(uri)
 	if err != nil {
 		return false, err
@@ -100,6 +160,8 @@ func (g *downloadG) waybackAttemptPull(uri string) (bool, error) {
 		}
 		reqRec.Headers[warc.FieldNameWARCTargetURI] = uri
 		respRec.Headers[warc.FieldNameWARCTargetURI] = uri
+		// reqRec.Headers[warc.FieldNameWARCDate] = uri
+		// respRec.Headers[warc.FieldNameWARCDate] = uri
 		err = g.warcWriter.WriteRecordsAndCDX(&reqRec, &respRec, resp)
 		if err != nil {
 			return false, errors.Wrapf(err, "wayback %s: save warc", uri)

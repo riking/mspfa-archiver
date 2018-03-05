@@ -36,6 +36,37 @@ type warcWriter struct {
 	*cdxWriter
 }
 
+const (
+	warcModeResources = iota
+	warcModeWayback
+)
+
+func prepareWARCWriter(cdxWriter *cdxWriter, warcMode int, dir advDir) (*warcWriter, error) {
+	var relFilename string
+	switch warcMode {
+	case warcModeResources:
+		relFilename = "resources.warc.gz"
+	case warcModeWayback:
+		relFilename = "wayback.warc.gz"
+	}
+	warcF, err := os.OpenFile(dir.File(relFilename), os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		return nil, err
+	}
+	// gzip initialization is delayed - we might not have to write any records at all
+
+	if cdxWriter != nil {
+		cdxWriter.WARCFileName = relFilename
+	}
+
+	return &warcWriter{
+		warcFile:     warcF,
+		warcFileName: relFilename,
+
+		cdxWriter: cdxWriter,
+	}, nil
+}
+
 func (w *warcWriter) SetCDXWriter(cdxWriter *cdxWriter) {
 	w.cdxWriter = cdxWriter
 	if cdxWriter != nil {
@@ -118,26 +149,6 @@ func (w *warcWriter) checkInit() {
 			w.cdxWriter.CDXAddRecord(rec, w.curResp, startPos, endPos)
 		}
 	}
-}
-
-func prepareWARCWriter(cdxWriter *cdxWriter, dir advDir) (*warcWriter, error) {
-	relFilename := "resources.warc.gz"
-	warcF, err := os.OpenFile(dir.File(relFilename), os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
-	if err != nil {
-		return nil, err
-	}
-	// gzip initialization is delayed - we might not have to write any records at all
-
-	if cdxWriter != nil {
-		cdxWriter.WARCFileName = relFilename
-	}
-
-	return &warcWriter{
-		warcFile:     warcF,
-		warcFileName: relFilename,
-
-		cdxWriter: cdxWriter,
-	}, nil
 }
 
 type cdxWriter struct {
