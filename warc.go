@@ -41,17 +41,12 @@ func (w *warcWriter) SetCDXWriter(cdxWriter *cdxWriter) {
 	if cdxWriter != nil {
 		cdxWriter.WARCFileName = w.warcFileName
 	}
-	if w.cdxWriter != nil && w.WARCWriter != nil {
-		w.WARCWriter.RecordCallback = func(rec *warc.Record, startPos int64, endPos int64) {
-			w.cdxWriter.CDXAddRecord(rec, w.curResp, startPos, endPos)
-		}
-	}
 }
 
 // Write a WARCInfo record and save its ID as w.WARCInfoID.
 func (w *warcWriter) WriteWarcinfo(rec *warc.Record) error {
 	w.checkInit()
-	err := w.WARCWriter.WriteRecord(rec)
+	_, _, err := w.WARCWriter.WriteRecord(rec)
 	if err != nil {
 		return err
 	}
@@ -62,7 +57,8 @@ func (w *warcWriter) WriteWarcinfo(rec *warc.Record) error {
 // Write a record with no special processing.
 func (w *warcWriter) WriteRecord(rec *warc.Record) error {
 	w.checkInit()
-	return w.WARCWriter.WriteRecord(rec)
+	_, _, err := w.WARCWriter.WriteRecord(rec)
+	return err
 }
 
 // Write a request/response pair and CDX line.
@@ -76,18 +72,19 @@ func (w *warcWriter) WriteRecordsAndCDX(reqRec, respRec *warc.Record, httpResp *
 		respRec.Headers.Set(warc.FieldNameWARCWarcinfoID, w.WARCInfoID)
 	}
 
-	err := w.WARCWriter.WriteRecord(reqRec)
+	_, _, err := w.WARCWriter.WriteRecord(reqRec)
 	if err != nil {
 		return err
 	}
-	w.curRecord = respRec
-	w.curResp = httpResp
-	err = w.WARCWriter.WriteRecord(respRec)
+	startPos, endPos, err := w.WARCWriter.WriteRecord(respRec)
 	if err != nil {
 		return err
 	}
-	if w.cdxWriter != nil && w.cdxWriter.Err() != nil {
-		return w.cdxWriter.Err()
+	if w.cdxWriter != nil {
+		w.cdxWriter.CDXAddRecord(respRec, httpResp, startPos, endPos)
+		if w.cdxWriter.Err() != nil {
+			return w.cdxWriter.Err()
+		}
 	}
 	return nil
 }

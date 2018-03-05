@@ -775,28 +775,28 @@ func buildResourceList(urlChan chan Rsc) map[Rsc]struct{} {
 					resource.Type = tVideo
 				}
 			}
-			// Do not download internal links
-			if u.Host == "mspfa.com" {
-				fetchAnyways := false
-				switch {
-				case u.Path == "", u.Path == "/":
-					q := u.Query()
-					if q.Get("s") != "" {
-						resource.Type = tLinkedStory
-					}
-				case strings.HasPrefix(u.Path, "/images"):
-					resource.Type = tSrc
-					fetchAnyways = true
-				}
-
-				if !fetchAnyways {
-					continue
-				}
-			}
 		}
 		if strings.Contains(u.Host, "photobucket.com") {
 			// fuck photobucket
 			resource.Type = tPhotobucket
+		}
+		// Do not download internal links
+		if u.Host == "mspfa.com" {
+			fetchAnyways := false
+			switch {
+			case u.Path == "", u.Path == "/":
+				q := u.Query()
+				if q.Get("s") != "" {
+					resource.Type = tLinkedStory
+				}
+			case strings.HasPrefix(u.Path, "/images"):
+				resource.Type = tSrc
+				fetchAnyways = true
+			}
+
+			if !fetchAnyways {
+				continue
+			}
 		}
 
 		resourceList[resource] = struct{}{}
