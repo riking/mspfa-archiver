@@ -65,18 +65,18 @@ func (g *downloadG) waybackPull404s(info map[string]warcRespMeta) error {
 	var log bytes.Buffer
 	logPut := io.MultiWriter(&log, os.Stdout)
 
-	fmt.Fprintf(logPut, "%v Starting attempt to retrieve %d URLs", time.Now(), len(list404s))
+	fmt.Fprintf(logPut, "%s Starting attempt to retrieve %d URLs\n", time.Now().UTC().Format(time.RFC3339), len(list404s))
 	for _, uri := range list404s {
 		ok, err := g.waybackAttemptPull(logPut, uri)
 		if err != nil {
-			fmt.Fprintf(logPut, "%v Error on %s: %s", time.Now(), uri, err)
+			fmt.Fprintf(logPut, "%v Error on %s: %s\n", time.Now().UTC().Format(time.RFC3339), uri, err)
 		} else if ok {
-			fmt.Fprintf(logPut, "%v Retrieved: %s", time.Now(), uri)
+			fmt.Fprintf(logPut, "%v Retrieved: %s\n", time.Now().UTC().Format(time.RFC3339), uri)
 		} else {
-			fmt.Fprintf(logPut, "%v No saved copy of: %s", time.Now(), uri)
+			fmt.Fprintf(logPut, "%v No saved copy of: %s\n", time.Now().UTC().Format(time.RFC3339), uri)
 		}
 	}
-	fmt.Fprintf(logPut, "%v End", time.Now())
+	fmt.Fprintf(logPut, "%v End", time.Now().UTC().Format(time.RFC3339))
 
 	// Write log record
 	rec := &warc.Record{
