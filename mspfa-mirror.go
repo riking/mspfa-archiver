@@ -1022,7 +1022,7 @@ func main() {
 		}
 		g.cdxWriter = cdxWriter
 		g.downloadedURLs = make(map[string]bool)
-		_, err = g.waybackFind404s()
+		_, err = g.find404s()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
 			downloadFailed = true

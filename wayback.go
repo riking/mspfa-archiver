@@ -108,62 +108,15 @@ func (g *downloadG) waybackAttemptPull(uri string) (bool, error) {
 	} // loop for redirects I think
 }
 
-// TODO: rewrite cdx?
-func (g *downloadG) waybackFind404s() (map[string]warcRespMeta, error) {
+func (g *downloadG) find404s() (map[string]warcRespMeta, error) {
 	var failingResponses = make(map[string]warcRespMeta)
-	relFilename := "resources.warc.gz"
-	warcF, err := os.Open(g.dir.File(relFilename))
-	if os.IsNotExist(err) {
-		return failingResponses, nil
-	} else if err != nil {
+	err := g.find404ScanWARC("resources.warc.gz", failingResponses)
+	if err != nil {
 		return nil, err
 	}
-	defer warcF.Close()
-	g.cdxWriter.WARCFileName = relFilename
-	warcBR := bufio.NewReader(warcF)
-
-	readPos := func() int64 {
-		pos_, err := warcF.Seek(0, io.SeekCurrent)
-		if err != nil {
-			panic(errors.Wrap(err, "writing cdx: reading warc: seek current"))
-		}
-		return pos_ - int64(warcBR.Buffered())
-	}
-
-	var startPos, endPos int64
-	startPos = readPos()
-
-	warcR, err := gzip.NewReader(warcBR)
+	err = g.find404ScanWARC("wayback.warc.gz", failingResponses)
 	if err != nil {
-		return nil, errors.Wrap(err, "open warc")
-	}
-	defer warcR.Close()
-
-	for {
-		warcR.Multistream(false)
-
-		record, err := readWARCRecord(warcR)
-		if err == io.EOF {
-			// empty record
-			goto _continue
-		} else if err != nil {
-			return nil, errors.Wrapf(err, "writing cdx: reading warc\nrecord: %v", record)
-		}
-		endPos = readPos()
-
-		err = g.processWARCRecord(&record, startPos, endPos, failingResponses)
-		if err != nil {
-			return nil, errors.Wrapf(err, "writing cdx: process warc\nrecord: %v", record)
-		}
-
-	_continue:
-		startPos = readPos()
-		err = warcR.Reset(warcBR)
-		if err == io.EOF {
-			break // real EOF
-		} else if err != nil {
-			return nil, errors.Wrap(err, "writing cdx: reading warc")
-		}
+		return nil, err
 	}
 
 	// Find URLs that have no WARC entry - e.g. DNS failures
@@ -186,6 +139,64 @@ func (g *downloadG) waybackFind404s() (map[string]warcRespMeta, error) {
 	}
 
 	return failingResponses, nil
+}
+
+func (g *downloadG) find404ScanWARC(filename string, failingResponses map[string]warcRespMeta) error {
+	warcF, err := os.Open(g.dir.File(filename))
+	if os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return errors.Wrap(err, "find404")
+	}
+	defer warcF.Close()
+	g.cdxWriter.WARCFileName = filename
+
+	warcBR := bufio.NewReader(warcF)
+	readPos := func() int64 {
+		pos_, err := warcF.Seek(0, io.SeekCurrent)
+		if err != nil {
+			panic(errors.Wrap(err, "writing cdx: reading warc: seek current"))
+		}
+		return pos_ - int64(warcBR.Buffered())
+	}
+
+	var startPos, endPos int64
+	startPos = readPos() // has to be before gzip.NewReader() / gzip.Reset()
+
+	warcR, err := gzip.NewReader(warcBR)
+	if err != nil {
+		return errors.Wrap(err, "open warc")
+	}
+	defer warcR.Close()
+
+	for {
+		warcR.Multistream(false)
+
+		record, err := readWARCRecord(warcR)
+		if err == io.EOF {
+			// empty record
+			goto _continue
+		} else if err != nil {
+			return errors.Wrapf(err, "writing cdx: reading warc\nrecord: %v", record)
+		}
+		endPos = readPos()
+
+		err = g.processWARCRecord(&record, startPos, endPos, failingResponses)
+		if err != nil {
+			return errors.Wrapf(err, "writing cdx: process warc\nrecord: %v", record)
+		}
+
+	_continue:
+		startPos = readPos()
+		err = warcR.Reset(warcBR)
+		if err == io.EOF {
+			break // real EOF
+		} else if err != nil {
+			return errors.Wrap(err, "writing cdx: reading warc")
+		}
+	}
+
+	return nil
 }
 
 func readWARCRecord(r io.Reader) (warc.Record, error) {
