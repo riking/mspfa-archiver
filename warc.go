@@ -122,7 +122,7 @@ func (w *warcWriter) checkInit() {
 
 func prepareWARCWriter(cdxWriter *cdxWriter, dir advDir) (*warcWriter, error) {
 	relFilename := "resources.warc.gz"
-	warcF, err := os.OpenFile(dir.File(relFilename), os.O_APPEND|os.O_RDWR, 0)
+	warcF, err := os.OpenFile(dir.File(relFilename), os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return nil, err
 	}
