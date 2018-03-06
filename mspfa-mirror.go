@@ -746,6 +746,7 @@ func writeURLsFile(resourceList map[Rsc]struct{}, dir advDir) error {
 
 var videoURLs = []string{
 	"youtube.com/watch",
+	"youtube.com/embed",
 	"youtu.be",
 	"newgrounds.com/audio",
 	"soundcloud.com",
@@ -769,15 +770,14 @@ func buildResourceList(urlChan chan Rsc) map[Rsc]struct{} {
 			u.Host = "mspfa.com"
 		}
 		resource.U = u.String()
-		if resource.Type == tLink {
-			if strings.HasSuffix(resource.U, ".swf") {
-				// Make sure to download linked flash files
-				resource.Type = tSrc
-			}
-			for _, videoStr := range videoURLs {
-				if strings.Contains(resource.U, videoStr) {
-					resource.Type = tVideo
-				}
+
+		if strings.HasSuffix(resource.U, ".swf") {
+			// Make sure to download linked flash files
+			resource.Type = tSrc
+		}
+		for _, videoStr := range videoURLs {
+			if strings.Contains(resource.U, videoStr) {
+				resource.Type = tVideo
 			}
 		}
 		if strings.Contains(u.Host, "photobucket.com") {
