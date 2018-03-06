@@ -956,7 +956,7 @@ func checkIAIdentifier(storyID string) {
 }
 
 func logProgress(phase string) {
-	fmt.Printf("%s Archiving %s -> %s: %s\n", time.Now().UTC().Format(time.RFC3339), storyID, *iaIdentifier, phase)
+	fmt.Printf("%s Archiving %s -> %s: %s\n", time.Now().UTC().Format(time.RFC3339), *storyIDFlag, *iaIdentifier, phase)
 }
 
 func main() {
