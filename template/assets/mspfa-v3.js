@@ -263,9 +263,12 @@
 		warcReqPending = true; // chrome bug 770694
 		requests++;
 		loading.classList.add("active");
-		var warcURL = "./resources.warc.gz";
+		var warcURL = "resources.warc.gz";
 		if (cdxData.warcfile && cdxData.warcfile !== "-") {
-			warcURL = cdxData.warcfile;
+			warcURL = cdxData.warcfile.trim();
+			if (cdxData.warcfile.indexOf("/") !== -1) {
+				warcURL = "../" + warcURL;
+			}
 		}
 		return fetch(warcURL, { headers: headers }).then(function(response) {
 			if (response.status !== 206) {
