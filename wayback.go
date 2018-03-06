@@ -101,7 +101,7 @@ func waybackGetIndex(uri string) ([][]string, error) {
 	apiQ := fmt.Sprintf("https://web.archive.org/cdx/search/cdx?url=%s&limit=50&matchType=exact",
 		url.QueryEscape(uri),
 	)
-	resp, err := http.Get(apiQ) // TODO custom client
+	resp, err := httpClient.Get(apiQ)
 	if err != nil {
 		return nil, errors.Wrap(err, "contact archive")
 	}
