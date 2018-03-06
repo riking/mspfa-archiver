@@ -955,6 +955,10 @@ func checkIAIdentifier(storyID string) {
 	}
 }
 
+func logProgress(phase string) {
+	fmt.Printf("%s Archiving %s -> %s: %s\n", time.Now().UTC().Format(time.RFC3339), storyID, *iaIdentifier, phase)
+}
+
 func main() {
 	flag.Usage = usage
 	flag.Parse()
@@ -995,6 +999,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	logProgress("save local files")
 	err = archiveStory(story, folder)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%+v\n", err)
@@ -1008,13 +1013,14 @@ func main() {
 			failed: false,
 		}
 
+		logProgress("Download subresources")
 		err = downloadResources(folder)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
 			downloadFailed = true
 		}
 
-		fmt.Println("writing CDX file")
+		logProgress("Write CDX of downloaded resources")
 		cdxWriter, err := prepareCDXWriter(folder)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
@@ -1022,6 +1028,7 @@ func main() {
 		}
 		g.cdxWriter = cdxWriter
 		g.downloadedURLs = make(map[string]bool)
+		logProgress("Find failed downloads")
 		_, err = g.find404s()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
@@ -1036,6 +1043,7 @@ func main() {
 		}
 		g.warcWriter = warcWriter
 
+		logProgress("Photobucket downloads")
 		err = g.downloadPhotobucketURLs()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
@@ -1049,6 +1057,7 @@ func main() {
 		}
 		g.warcWriter = waybackWarc
 		g.cdxWriter.WARCFileName = "wayback.warc.gz"
+		logProgress("Wayback Machine downloads")
 		err = g.waybackPull404s(nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
@@ -1057,6 +1066,7 @@ func main() {
 		g.warcWriter = warcWriter
 		g.cdxWriter.WARCFileName = "resources.warc.gz"
 
+		logProgress("Video downloads")
 		err = downloadVideos(folder)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
@@ -1067,6 +1077,7 @@ func main() {
 		cdxWriter.Close()
 	}
 
+	logProgress("Done with download step")
 	if downloadFailed && !*forceUpload {
 		fmt.Println("Download step failed, exiting without uploading to IA.")
 		os.Exit(3)

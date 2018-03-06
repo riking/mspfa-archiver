@@ -295,6 +295,7 @@ var known404Redirects = []string{
 	"https://imageshack.com/",
 	"http://i.imgur.com/removed.png",
 	"https://i.imgur.com/removed.png",
+	"http://www.freeimagehosting.net",
 }
 
 func (g *downloadG) processWARCRecord(rec *warc.Record, startPos, endPos int64, infoMap map[string]warcRespMeta) error {
