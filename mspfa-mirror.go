@@ -223,7 +223,11 @@ func downloadStoryJSON(storyID string, destFile string) (*StoryJSON, error) {
 		return nil, errors.Wrapf(err, "get story %s", storyID)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode == 404 {
+		fmt.Println("Story", storyID, "does not exist. Exiting")
+		os.Exit(0)
+		return nil, nil
+	} else if resp.StatusCode != 200 {
 		by, _ := ioutil.ReadAll(resp.Body)
 		return nil, errors.Errorf("get story %s: response code %s: %s", storyID, resp.Status, by)
 	}
