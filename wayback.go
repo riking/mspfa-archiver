@@ -153,6 +153,9 @@ func (g *downloadG) waybackAttemptPull(log io.Writer, uri string) (bool, error) 
 		if resp.StatusCode != 200 {
 			fmt.Println("non-200 from wayback, please debug", resp)
 			return false, nil
+		} else if false {
+			// redirects...
+			continue
 		}
 		reqRec, respRec, err := warc.NewRequestResponseRecords(warc.CaptureHelper{}, req, resp)
 		if err != nil {

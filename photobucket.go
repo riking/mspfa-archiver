@@ -89,7 +89,7 @@ func (g *downloadG) downloadPhotobucket(uri string, httpClient *http.Client) err
 
 	// fixups
 	if strings.HasSuffix(filename, ".pn") {
-		filename = filename + "g"
+		// filename = filename + "g"
 		uri = uri + "g"
 	}
 

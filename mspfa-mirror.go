@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -525,6 +526,9 @@ func copyAssets(story *StoryJSON, dir advDir) error {
 		}
 		u = mspfaBaseURL.ResolveReference(u)
 		err = downloadFile(u.String(), dir.File("cover.png"))
+		if err != nil {
+			return errors.Wrap(err, "download story.Icon")
+		}
 	} else {
 		wat := rand.Intn(4)
 		_ = os.Remove(dir.File("cover.png"))
@@ -689,7 +693,7 @@ func writeURLsFile(resourceList map[Rsc]struct{}, dir advDir) error {
 	urls := make([]string, 0, len(resourceList))
 	links := make([]string, 0, 10)
 	videos := make([]string, 0, 5)
-	photobuckets := make([]string, 0, 0)
+	photobuckets := make([]string, 0)
 	for rsc := range resourceList {
 		switch rsc.Type {
 		case tSrc:
@@ -740,8 +744,7 @@ func writeURLsFile(resourceList map[Rsc]struct{}, dir advDir) error {
 	if err != nil {
 		return err
 	}
-
-	return err
+	return nil
 }
 
 var videoURLs = []string{
