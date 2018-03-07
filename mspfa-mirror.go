@@ -3,11 +3,12 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"html/template"
+	"image"
+	"image/png"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -23,12 +24,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datatogether/warc"
 	"github.com/glenn-brown/golang-pkg-pcre/src/pkg/pcre"
 	cssparse "github.com/gorilla/css/scanner"
 	"github.com/kballard/go-shellquote"
+	"github.com/nfnt/resize"
 	"github.com/pkg/errors"
 	"golang.org/x/net/html"
 )
+
+import _ "image/jpeg"
+import _ "image/gif"
 
 type Page struct {
 	Date    float64 `json:"d"`
@@ -518,27 +524,237 @@ func copyAssets(story *StoryJSON, dir advDir) error {
 	}
 	story.Conf.footerImages = choices.String()
 
-	// Thumbnail
+	wg.Wait()
+
+	return nil
+}
+
+type cdxOffsetReturn struct {
+	offset   int64
+	size     int64
+	filename string
+}
+
+func getOffsetFromCDX(uri string, dir advDir) (cdxOffsetReturn, error) {
+	var ret cdxOffsetReturn
+	ret.size = -1
+
+	// read CDX
+	cdxF, err := os.Open(dir.File("resources.cdx"))
+	if err != nil {
+		return ret, errors.Wrapf(err, "extract %s", uri)
+	}
+	defer cdxF.Close()
+	sc := bufio.NewScanner(cdxF)
+	sc.Scan()
+	format := cdxLineToFormat(sc.Text())
+	origURLIdx, ok := format[CDXOriginalURL]
+	if !ok {
+		return ret, errors.Errorf("extract %s: CDX format not acceptable: does not have originalURL", uri)
+	}
+	offsetIdx, ok := format[CDXCompressedOffset]
+	if !ok {
+		return ret, errors.Errorf("extract %s: CDX format not acceptable: does not have compressed offset", uri)
+	}
+	sizeIdx, ok := format[CDXCompressedSize]
+	if !ok {
+		return ret, errors.Errorf("extract %s: CDX format not acceptable: does not have compressed size", uri)
+	}
+	filenameIdx, ok := format[CDXArcFileName]
+	if !ok {
+		return ret, errors.Errorf("extract %s: CDX format not acceptable: does not have ARC file name", uri)
+	}
+
+	for sc.Scan() {
+		split := strings.Split(sc.Text(), " ")
+		if split[origURLIdx] == uri {
+			offset, err := strconv.ParseInt(split[offsetIdx], 10, 64)
+			if err != nil {
+				return ret, errors.Wrapf(err, "extract %s: atoi offset", uri)
+			}
+			size, err := strconv.ParseInt(split[sizeIdx], 10, 64)
+			if err != nil {
+				return ret, errors.Wrapf(err, "extract %s: atoi size", uri)
+			}
+			ret.offset = offset
+			ret.size = size
+			ret.filename = split[filenameIdx]
+		}
+	}
+	if ret.size > 0 {
+		return ret, nil
+	}
+	return ret, os.ErrNotExist
+}
+
+type replaceClose struct {
+	io.Reader
+	onClose func() error
+}
+
+func (r *replaceClose) Close() error {
+	return r.onClose()
+}
+
+func extractDownloadedFile(uri string, dir advDir) (io.ReadCloser, error) {
+	cdxValues, err := getOffsetFromCDX(uri, dir)
+	if err != nil {
+		return nil, err
+	}
+	warcF, err := os.Open(dir.File(cdxValues.filename))
+	if err != nil {
+		return nil, errors.Wrapf(err, "extract %s", uri)
+	}
+	// do NOT defer close
+	_, err = warcF.Seek(cdxValues.offset, io.SeekStart)
+	if err != nil {
+		warcF.Close()
+		return nil, errors.Wrapf(err, "extract %s: seek", uri)
+	}
+	limitR := &io.LimitedReader{R: warcF, N: cdxValues.size}
+	recR, err := warc.NewReader(limitR)
+	if err != nil {
+		warcF.Close()
+		return nil, errors.Wrapf(err, "extract %s: init reader", uri)
+	}
+	rec, err := recR.Read()
+	if err != nil {
+		warcF.Close()
+		return nil, errors.Wrapf(err, "extract %s: read record", uri)
+	}
+
+	rdr := bufio.NewReader(rec.Content)
+	resp, err := http.ReadResponse(rdr, nil)
+	if err != nil {
+		warcF.Close()
+		return nil, errors.Wrapf(err, "extract %s: read response", uri)
+	}
+
+	return &replaceClose{
+		Reader: resp.Body,
+		onClose: func() error {
+			resp.Body.Close()
+			return warcF.Close()
+		},
+	}, nil
+}
+
+func extractAndSaveFile(uri, filename string, dir advDir) error {
+	rc, err := extractDownloadedFile(uri, dir)
+	if os.IsNotExist(err) {
+		return err
+	} else if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	f, err := os.Create(dir.File(filename))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = io.Copy(f, rc)
+	return err
+}
+
+func extractAndSaveDownscaledImage(uri, filename string, dir advDir) error {
+	rc, err := extractDownloadedFile(uri, dir)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	img, _, err := image.Decode(rc)
+	if err != nil {
+		return errors.Wrapf(err, "downscale %s", uri)
+	}
+	rsImg := resize.Thumbnail(640, 640, img, resize.Bilinear)
+	f, err := os.Create(dir.File(filename))
+	if err != nil {
+		return errors.Wrapf(err, "downscale %s", uri)
+	}
+	defer f.Close()
+	return png.Encode(f, rsImg)
+}
+
+func writeThumbnail(story *StoryJSON, dir advDir) error {
+	// prefer .icon
 	if story.Icon != "" {
 		u, err := url.Parse(story.Icon)
 		if err != nil {
 			return errors.Wrap(err, "parse story.Icon")
 		}
 		u = mspfaBaseURL.ResolveReference(u)
+		err = extractAndSaveFile(u.String(), "cover.png", dir)
+		if os.IsNotExist(err) {
+			// continue
+		} else if err != nil {
+			return err
+		} else {
+			fmt.Println("thumbnail: used story.Icon")
+			return nil
+		}
+
+		// continued: not found in WARC
 		err = downloadFile(u.String(), dir.File("cover.png"))
 		if err != nil {
 			return errors.Wrap(err, "download story.Icon")
 		}
-	} else {
-		wat := rand.Intn(4)
-		_ = os.Remove(dir.File("cover.png"))
-		err = os.Link(dir.File(fmt.Sprintf("assets/wat/wat.njs.%d", wat)), dir.File("cover.png"))
+		return nil
 	}
+
+	// Check for images on first page
+	switch {
+	case true:
+		if len(story.Pages) < 1 {
+			fmt.Println("thumbnail: no pages")
+			break // continue
+		}
+		page := &story.Pages[0]
+		out := make(chan Rsc)
+		var firstImage string
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			for rsc := range out {
+				if rsc.Type == tSrc {
+					firstImage = rsc.U
+					break
+				}
+			}
+			for range out { // drain
+			}
+			wg.Done()
+		}()
+		scanBBCode(page, out)
+		close(out)
+		wg.Wait() // synchronization point for write to firstImage
+
+		u, err := url.Parse(firstImage)
+		if err != nil {
+			fmt.Println(errors.Wrap(err, "thumbnail: parse first page image"))
+			break // continue
+		}
+		u = mspfaBaseURL.ResolveReference(u)
+		fmt.Println("Using first page image as thumbnail:", u.String())
+		err = extractAndSaveDownscaledImage(u.String(), "cover.png", dir)
+		if os.IsNotExist(err) {
+			break // continue
+		} else if err != nil {
+			return errors.Wrap(err, "thumbnail")
+		} else {
+			return nil
+		}
+	}
+
+	// Default icon
+	fmt.Println("thumbnail: writing default")
+	wat := rand.Intn(4)
+	_ = os.Remove(dir.File("cover.png"))
+	err := os.Link(dir.File(fmt.Sprintf("assets/wat/wat.njs.%d", wat)), dir.File("cover.png"))
 	if err != nil {
 		return err
 	}
-
-	wg.Wait()
 
 	return nil
 }
@@ -1085,6 +1301,8 @@ func main() {
 	}
 
 	logProgress("Done with download step")
+	// run *after* download step, takes image out of WARC
+	writeThumbnail(story, folder)
 	if downloadFailed && !*forceUpload {
 		fmt.Println("Download step failed, exiting without uploading to IA.")
 		os.Exit(3)
