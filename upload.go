@@ -152,7 +152,9 @@ func releaseLimitToken(g *uploadJobGlobal, allowExtraRelease bool) {
 	}
 }
 
-func uploadFile(job *uploadJob, wg *sync.WaitGroup) {
+func uploadFile(job *uploadJob, wg *sync.WaitGroup, cancel func()) {
+	defer cancel()
+
 	var err error
 	defer func() {
 		releaseLimitToken(job.g, err == nil)
@@ -432,9 +434,10 @@ func runUploadJob(ctx context.Context, jobG *uploadJobGlobal, dir advDir, fileLi
 		for job := range jobs {
 			<-limitCh
 			uploadFileProcs.Add(1)
-			job.ctx, _ = context.WithTimeout(ctx, 10*time.Minute)
+			var cancel func()
+			job.ctx, cancel = context.WithTimeout(ctx, 10*time.Minute)
 
-			go uploadFile(job, &uploadFileProcs)
+			go uploadFile(job, &uploadFileProcs, cancel)
 			dispatchedTasks++
 
 			if dispatchedTasks > 50 {

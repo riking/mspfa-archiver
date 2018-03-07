@@ -199,6 +199,10 @@ func (cw *cdxWriter) Close() error {
 	return cw.stickyErr
 }
 
+// The CDXFormat type maps a CDX header character (the key) to an array index.
+// Values should be contiguous.
+type CDXFormat map[byte]int
+
 func cdxLineToFormat(line string) CDXFormat {
 	format := make(CDXFormat)
 	split := strings.Split(strings.TrimPrefix(line, " CDX "), " ")
@@ -210,6 +214,17 @@ func cdxLineToFormat(line string) CDXFormat {
 
 const cdxFormat1 = " CDX a b m s k S V g u" // used by wpull
 const cdxFormat2 = " CDX N b a m s k r M S V g"
+
+func cdxSet(format CDXFormat, line []string, key byte, value string) {
+	idx, ok := format[key]
+	if !ok {
+		return
+	}
+	if value == "" {
+		value = "-"
+	}
+	line[idx] = value
+}
 
 func prepareCDXWriter(dir advDir) (*cdxWriter, error) {
 	cdxFile, err := os.Create(dir.File("resources.cdx"))
@@ -358,21 +373,6 @@ func iaMassagedURL(u1 *url.URL) string {
 	}
 	u.Scheme = "XXX"
 	return strings.TrimPrefix(u.String(), "XXX://")
-}
-
-// The CDXFormat type maps a CDX header character (the key) to an array index.
-// Values should be contiguous.
-type CDXFormat map[byte]int
-
-func cdxSet(format CDXFormat, line []string, key byte, value string) {
-	idx, ok := format[key]
-	if !ok {
-		return
-	}
-	if value == "" {
-		value = "-"
-	}
-	line[idx] = value
 }
 
 // Writes the CDX fields that can be determined from the record into the target

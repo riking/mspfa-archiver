@@ -305,7 +305,7 @@ func downloadResources(dir advDir) error {
 		"--retry-connrefused", "--retry-dns-error",
 		"-P", dir.File("linked"),
 		"--delete-after",
-		"--exclude-domains", "youtube.com,assets.tumblr.com",
+		"--exclude-domains", "youtube.com,assets.tumblr.com,majhost.com,myfrogbag.com,files.myfrogbag.com",
 	)
 	extraArgs, err := shellquote.Split(*wpullArgs)
 	if err != nil {
@@ -837,6 +837,9 @@ func archiveStory(story *StoryJSON, dir advDir) error {
 	}()
 
 	resourceList := buildResourceList(urlChan)
+	if scanErr != nil {
+		return scanErr
+	}
 
 	var err error
 	fmt.Println("Writing URLs file...")
@@ -998,6 +1001,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "%+v\n", err)
 		os.Exit(1)
 	}
+	fmt.Println(len(story.Pages), "pages")
 
 	logProgress("save local files")
 	err = archiveStory(story, folder)
