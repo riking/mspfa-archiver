@@ -1285,9 +1285,13 @@ func main() {
 		g.warcWriter = waybackWarc
 		g.cdxWriter.WARCFileName = "wayback.warc.gz"
 		logProgress("Wayback Machine downloads")
-		err = g.waybackPull404s(nil)
+		numFailed, err := g.waybackPull404s(nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%+v\n", err)
+			downloadFailed = true
+		}
+		if numFailed > 0 {
+			fmt.Printf("%s Failed to rescue %v files\n", time.Now().UTC().Format(time.RFC3339), numFailed)
 			downloadFailed = true
 		}
 		g.warcWriter = warcWriter

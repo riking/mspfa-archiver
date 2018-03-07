@@ -50,7 +50,7 @@ func (g *downloadG) waybackWriteWarcinfo(uriList []string) error {
 	return errors.Wrap(g.warcWriter.WriteWarcinfo(rec), "wayback: warcinfo record")
 }
 
-func (g *downloadG) waybackPull404s(info map[string]warcRespMeta) error {
+func (g *downloadG) waybackPull404s(info map[string]warcRespMeta) (int, error) {
 	var list404s []string
 	for uri, ok := range g.downloadedURLs {
 		if !ok {
@@ -58,11 +58,12 @@ func (g *downloadG) waybackPull404s(info map[string]warcRespMeta) error {
 		}
 	}
 	if len(list404s) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	g.waybackWriteWarcinfo(list404s)
 	var log bytes.Buffer
+	numFailed := 0
 	logPut := io.MultiWriter(&log, os.Stdout)
 
 	fmt.Fprintf(logPut, "%s Starting attempt to retrieve %d URLs\n", time.Now().UTC().Format(time.RFC3339), len(list404s))
@@ -70,10 +71,12 @@ func (g *downloadG) waybackPull404s(info map[string]warcRespMeta) error {
 		ok, err := g.waybackAttemptPull(logPut, uri)
 		if err != nil {
 			fmt.Fprintf(logPut, "%v Error on %s: %s\n", time.Now().UTC().Format(time.RFC3339), uri, err)
+			numFailed++
 		} else if ok {
 			fmt.Fprintf(logPut, "%v Retrieved: %s\n", time.Now().UTC().Format(time.RFC3339), uri)
 		} else {
 			fmt.Fprintf(logPut, "%v No saved copy of: %s\n", time.Now().UTC().Format(time.RFC3339), uri)
+			numFailed++
 		}
 	}
 	fmt.Fprintf(logPut, "%v End\n", time.Now().UTC().Format(time.RFC3339))
@@ -94,7 +97,7 @@ func (g *downloadG) waybackPull404s(info map[string]warcRespMeta) error {
 	rec.Headers[warc.FieldNameWARCBlockDigest] = warc.Sha1Digest(rec.Content.Bytes())
 	err := errors.Wrap(g.warcWriter.WriteRecord(rec), "wayback: warc log record")
 
-	return err
+	return numFailed, err
 }
 
 func waybackGetIndex(uri string) ([][]string, error) {
