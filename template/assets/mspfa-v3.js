@@ -330,7 +330,7 @@
 						httpProtocolString = headerText.slice(0, spaceIdx);
 						var codeSpaceIdx = headerText.indexOf(" ", spaceIdx + 1);
 						httpStatusCode = (headerText.slice(spaceIdx + 1, codeSpaceIdx));
-						httpStatusText = (headerText.slice(codeSpaceIdx));
+						httpStatusText = (headerText.slice(codeSpaceIdx + 1));
 						return;
 					}
 				} else {
@@ -344,7 +344,7 @@
 				if (!(element === 13 && array[index+1] === 10 && index >= lastNewline)) { // '\r\n'
 					return;
 				}
-				if (!(array[index+2] === 13 && array[index+3] === 10)) {
+				if (index !== lastNewline) {
 					// Header
 					var headerBytes = warcResult.slice(lastNewline, index);
 					var headerText = textDecoder.decode(headerBytes);
@@ -358,12 +358,12 @@
 						flushContinuations();
 						contentStart = -1;
 						headerMode = 0;
-						lastNewline = index + 4;
+						lastNewline = index + 2;
 						return;
 					} else {
 						// end of HTTP headers, start of HTTP content
 						flushContinuations();
-						contentStart = index + 4;
+						contentStart = index + 2;
 						return true;
 					}
 				}
