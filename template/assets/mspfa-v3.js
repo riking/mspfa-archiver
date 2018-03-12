@@ -238,6 +238,18 @@
 		}
 	}
 
+	// state format:
+	//   .index
+	function lineRead(buf, state) {
+		var startIdx = state.index || 0;
+		var idx = startIdx;
+		while (!(buf[idx] === 13 && buf[idx + 1] === 10) && idx < buf.length) {
+			idx++;
+		}
+		state.index = idx + 2;
+		return buf.slice(startIdx, idx);
+	}
+
 	// Takes a resource URL, and loads it from the WARC archive.
 	// @return Promise<String>
 	function resourceToBlob(url) {
@@ -340,34 +352,24 @@
 					pendingHeaderContent = headerText.slice(colonIdx+1).trim();
 				}
 			};
-			warcResult.find(function(element, index, array) {
-				if (!(element === 13 && array[index+1] === 10 && index >= lastNewline)) { // '\r\n'
-					return;
-				}
-				if (index !== lastNewline) {
-					// Header
-					var headerBytes = warcResult.slice(lastNewline, index);
-					var headerText = textDecoder.decode(headerBytes);
-					processHeaderLine(headerBytes, headerText);
-					lastNewline = index + 2;
-					return;
-				} else {
-					// found \r\n\r\n
+			var lineState = {index: 0};
+			while (lineState.index < warcResult.length) {
+				var lineSlice = lineRead(warcResult, lineState);
+				if (lineSlice.length === 0) {
+					flushContinuations();
 					if (contentStart === -2) {
-						// end of WARC headers, start of HTTP headers
-						flushContinuations();
+						// End of WARC headers
 						contentStart = -1;
 						headerMode = 0;
-						lastNewline = index + 2;
-						return;
 					} else {
-						// end of HTTP headers, start of HTTP content
-						flushContinuations();
-						contentStart = index + 2;
-						return true;
+						contentStart = lineState.index;
+						break; // End of HTTP headers
 					}
+				} else {
+					var lineText = textDecoder.decode(lineSlice);
+					processHeaderLine(lineSlice, lineText);
 				}
-			});
+			}
 			// check for 302
 			if (contentStart < 0) {
 				throw "could not find end of WARC headers";
