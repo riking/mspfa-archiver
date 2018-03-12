@@ -754,20 +754,23 @@ func writeThumbnail(story *StoryJSON, dir advDir) error {
 		close(out)
 		wg.Wait() // synchronization point for write to firstImage
 
+		if firstImage == "" {
+			break // continue to default
+		}
 		u, err := url.Parse(firstImage)
 		if err != nil {
 			fmt.Println(errors.Wrap(err, "thumbnail: parse first page image"))
-			break // continue
+			break // continue to default
 		}
 		u = mspfaBaseURL.ResolveReference(u)
 		fmt.Println("Using first page image as thumbnail:", u.String())
 		err = extractAndSaveDownscaledImage(u.String(), "cover.png", dir)
 		if os.IsNotExist(err) {
-			break // continue
+			break // continue to default
 		} else if err != nil {
 			return errors.Wrap(err, "thumbnail")
 		} else {
-			return nil
+			return nil // done
 		}
 	}
 
