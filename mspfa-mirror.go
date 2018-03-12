@@ -568,10 +568,22 @@ func getOffsetFromCDX(uri string, dir advDir) (cdxOffsetReturn, error) {
 	if !ok {
 		return ret, errors.Errorf("extract %s: CDX format not acceptable: does not have ARC file name", uri)
 	}
+	statusIdx, ok := format[CDXResponseCode]
+	if !ok {
+		return ret, errors.Errorf("extract %s: CDX format not acceptable: does not have response code", uri)
+	}
 
 	for sc.Scan() {
 		split := strings.Split(sc.Text(), " ")
 		if split[origURLIdx] == uri {
+			code, err := strconv.ParseInt(split[statusIdx], 10, 64)
+			if err != nil {
+				return ret, errors.Wrapf(err, "extract %s: atoi code", uri)
+			}
+			if code >= 400 {
+				// ignore 4xx 5xx codes
+				continue
+			}
 			offset, err := strconv.ParseInt(split[offsetIdx], 10, 64)
 			if err != nil {
 				return ret, errors.Wrapf(err, "extract %s: atoi offset", uri)
@@ -632,6 +644,14 @@ func extractDownloadedFile(uri string, dir advDir) (io.ReadCloser, error) {
 	if err != nil {
 		warcF.Close()
 		return nil, errors.Wrapf(err, "extract %s: read response", uri)
+	}
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		// Redirects
+		if resp.Header.Get("Location") != "" {
+			resp.Body.Close()
+			warcF.Close()
+			return extractDownloadedFile(resp.Header.Get("Location"), dir)
+		}
 	}
 
 	return &replaceClose{
@@ -1310,7 +1330,11 @@ func main() {
 
 	logProgress("Done with download step")
 	// run *after* download step, takes image out of WARC
-	writeThumbnail(story, folder)
+	err = writeThumbnail(story, folder)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%+v\n", err)
+		downloadFailed = true
+	}
 	if downloadFailed && !*forceUpload {
 		fmt.Println("Download step failed, exiting without uploading to IA.")
 		os.Exit(3)
