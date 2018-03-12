@@ -250,9 +250,20 @@
 		return buf.slice(startIdx, idx);
 	}
 
+	// resource URL -> object URL
+	var resourceBlobCache = {};
+	function addToBlobCache(resourceURL, objectURL) {
+		// TODO - add cache eviction, but not for things that are still being used (page CSS...)
+		resourceBlobCache[resourceURL] = objectURL;
+	}
+
 	// Takes a resource URL, and loads it from the WARC archive.
 	// @return Promise<String>
 	function resourceToBlob(url) {
+		if (resourceBlobCache[url]) {
+			// TODO eviction - update LRU
+			return Promise.resolve(resourceBlobCache[url]);
+		}
 		if (!cdxReady || warcReqPending) {
 			return new Promise(function(resolve, reject) {
 				if (cdxReady && !warcReqPending) {
@@ -385,13 +396,38 @@
 			if (mimeType === "-") {
 				mimeType = httpHeaders.get('Content-Type');
 			}
+			var transferEncoding = httpHeaders.get('Transfer-Encoding');
+			var contentSlices = [inflator.result.slice(contentStart)];
+			if (transferEncoding === 'chunked') {
+				contentSlices = [];
+				lineState = {index: contentStart};
+				while (lineState.index < warcResult.length) {
+					var lineSlice = lineRead(warcResult, lineState);
+					var lineText = textDecoder.decode(lineSlice);
+					var chunkSize = parseInt(lineText, 16);
+					if (chunkSize === 0) {
+						break;
+					} else if (isNaN(chunkSize)) {
+						console.error("chunked-transfer-encoding: failed to parse chunk size", lineText);
+						break;
+					}
+					contentSlices.push(warcResult.slice(lineState.index, lineState.index + chunkSize));
+					lineState.index += chunkSize;
+					var emptyLine = lineRead(warcResult, lineState);
+					if (emptyLine.length !== 0) {
+						console.error("chunked-transfer-encoding: expected empty line at end of chunk.", "index", lineState, "last chunk size", chunkSize);
+						break;
+					}
+				}
+			}
 			// return result
-			var blob = new Blob([inflator.result.slice(contentStart)], {type: mimeType});
-			return URL.createObjectURL(blob) + "#" + url;
+			var blob = new Blob(contentSlices, {type: mimeType});
+			var objectURL = URL.createObjectURL(blob) + "#" + url;
+			addToBlobCache(url, objectURL);
+			return objectURL;
 		}).catch(function(err) {
 			console.error(err);
 			warcReqPending = false;
-			cdxPendingPop();
 
 			var span = document.createElement("span");
 			span.appendChild(document.createTextNode("An error occurred while loading the resource " + url + ":"));
@@ -405,6 +441,7 @@
 			if (!requests) {
 				loading.classList.remove("active");
 			}
+			cdxPendingPop();
 		});
 	};
 
