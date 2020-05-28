@@ -2,6 +2,33 @@
 
 The MSPFA script is at templates/assets/mspfa.js. All edits are annotated, so that edits to the script can be audited.
 
+## Usage
+
+```
+# Install dependencies, part 1
+$ sudo apt install libpcre3-dev
+# Download code
+$ go get -v github.com/riking/mspfa-archiver
+$ cd $(go env GOPATH)/src/github.com/riking/mspfa-archiver
+# Install dependencies, part 2
+$ ./get-wpull.sh
+$ mkdir target
+
+# Compile binary
+$ go build -v .
+
+# Download story images
+$ ./mspfa-archiver -s STORYID -dl
+  # Extra options: -f, -devScript, -o=FOLDER, -dl=false, -wpull-args
+
+# Upload to archive.org
+$ ./mspfa-archiver -s STORYID -test -ident mspfa-STORYID-20060102
+  # Extra options: -test=false, -fu, -fixmeta, -o=FOLDER
+
+# (DEVELOPER ONLY: After changing template/assets/)
+$ ./mspfa-archiver -updateAssets
+```
+
 ### Order of operations
 
  1. check for existing internet archive items with mspfa-id set, examine for
