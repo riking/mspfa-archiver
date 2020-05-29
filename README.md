@@ -17,6 +17,10 @@ $ mkdir target
 # Compile binary
 $ go build -v .
 
+# Produce a list of external resources in a story
+$ ./mspfa-archiver -s STORYID
+  # Output: target/STORYID/urls.txt, links.txt, videos.txt, photobucket.txt
+
 # Download story images
 $ ./mspfa-archiver -s STORYID -dl
   # Extra options: -f, -devScript, -o=FOLDER, -dl=false, -wpull-args
